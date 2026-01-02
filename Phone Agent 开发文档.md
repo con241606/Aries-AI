@@ -18,6 +18,7 @@
 - [7. 更新记录（Changelog）](#7-更新记录changelog)
 - [8. 知识库（Reference）](#8-知识库reference)
 - [9. 历史任务进度（旧）](#9-历史任务进度旧)
+- [10. 大文件/LFS 与协作提醒](#10-大文件lfs-与协作提醒)
 
 ## 1. 最新状态（2026-01-02）
 
@@ -513,3 +514,28 @@ recognizer.shutdown()
 - **t16 历史对话持久化**（退出后恢复会话与消息）：pending
 - **t17 自动化闭环稳定性复核**（Launch/截图/解析/等待等）：pending
 - **t12 敏感操作确认/接管机制**（敏感 Tap 确认、暂停/继续/接管）：pending
+
+## 10. 大文件/LFS 与协作提醒
+
+> 重要：仓库已忽略体积超 100MB 的 Sherpa 模型二进制，请勿再次提交模型文件；推送前务必检查 `git status`。
+
+- 模型/大文件不入库：
+  - `.gitignore` 已忽略 `app/src/main/assets/sherpa-models/`，仅保留 `README.md` 作为下载指引。
+  - JNI so 仍需放在 `app/src/main/jniLibs/arm64-v8a/`、`armeabi-v7a/`（体积较小，可入库）。
+- 模型获取与摆放：
+  1) 按 `app/src/main/assets/sherpa-models/README.md` 下载模型压缩包。
+  2) 解压后放入 `app/src/main/assets/sherpa-models/`，保持原有文件结构（`encoder_jit_trace-pnnx.ncnn.bin` 等）。
+  3) 本地运行前确认路径存在；提交前确认未被 `git add`。
+- 若历史已包含大文件需清理再推送：
+  - 使用 `git filter-repo`：
+    ```bash
+    git filter-repo --invert-paths \
+      --path app/src/main/assets/sherpa-models/model_qint8_arm64.onnx \
+      --path app/src/main/assets/sherpa-models/sherpa-ncnn-streaming-zipformer-bilingual-zh-en-2023-02-13/encoder_jit_trace-pnnx.ncnn.bin
+    ```
+  - 或用 BFG：
+    ```bash
+    bfg --delete-files model_qint8_arm64.onnx --delete-files encoder_jit_trace-pnnx.ncnn.bin
+    ```
+  - 清理后强推：`git push -f origin main`。
+  - 协作者：历史重写后请重新 clone 或重建本地分支，避免旧提交带入大文件。
