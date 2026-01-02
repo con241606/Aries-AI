@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- 轻微振动反馈需要声明 VIBRATE 权限（normal 权限，安装时授予） -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 前台服务权限（Android 14+ 要求） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="true"
@@ -52,6 +55,12 @@
             android:taskAffinity="${applicationId}.launchproxy"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- 悬浮聊天窗口服务 -->
+        <service
+            android:name=".FloatingChatService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
 
         <activity
             android:name=".MainActivity"

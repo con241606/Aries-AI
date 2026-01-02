@@ -22,7 +22,6 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.view.inputmethod.InputMethodManager
@@ -45,7 +44,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.ai.phoneagent.databinding.ActivityMainBinding
 import com.ai.phoneagent.net.AutoGlmClient
 import com.ai.phoneagent.net.ChatRequestMessage
-import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +54,11 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
+import android.net.Uri
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.AccelerateInterpolator
+import android.content.Intent
 
 class MainActivity : AppCompatActivity() {
 
@@ -97,11 +100,15 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingSendAfterVoice: Boolean = false
 
-    private val swipeTouchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop }
+    // 滑动手势相关
     private var swipeStartX = 0f
     private var swipeStartY = 0f
-    private var swipeHandled = false
+    private var swipeTracking = false
     private var originalContentTopPadding = 0
+    
+    // 小窗模式相关
+    private var isAnimatingToMiniWindow = false
+    private val OVERLAY_PERMISSION_REQUEST_CODE = 1234
 
     private val conversationsKey = "conversations_json"
     private val activeConversationIdKey = "active_conversation_id"
@@ -189,6 +196,171 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         restoreApiKey()
         maybeShowPermissionBottomSheet()
+        
+        // 设置消息同步监听器
+        setupMessageSyncListener()
+        
+        // 检查是否从悬浮窗返回，播放入场动画并同步消息
+        handleReturnFromFloatingWindow()
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        // 不再清除消息同步监听器，保持双向同步
+        // 监听器会在 Activity 销毁时自动失效
+    }
+    
+    /**
+     * 设置消息同步监听器，用于接收悬浮窗中的新消息
+     */
+    private fun setupMessageSyncListener() {
+        FloatingChatService.setMessageSyncListener(object : FloatingChatService.Companion.MessageSyncListener {
+            override fun onMessageAdded(message: String, isUser: Boolean) {
+                // 在主线程更新 UI
+                runOnUiThread {
+                    val c = requireActiveConversation()
+                    val content = message.removePrefix("我: ").removePrefix("AI: ")
+                    val author = if (isUser) "我" else "AI"
+                    
+                    // 检查是否已存在该消息（避免重复）
+                    val exists = c.messages.any { it.content == content && it.isUser == isUser }
+                    if (!exists) {
+                        c.messages.add(UiMessage(author = author, content = content, isUser = isUser))
+                        c.updatedAt = System.currentTimeMillis()
+                        appendMessageInstant(author, content, isUser)
+                        persistConversations()
+                    }
+                }
+            }
+            
+            override fun onMessagesCleared() {
+                runOnUiThread {
+                    binding.messagesContainer.removeAllViews()
+                }
+            }
+        })
+    }
+    
+    /**
+     * 处理从悬浮窗返回的动画和消息同步
+     */
+    private fun handleReturnFromFloatingWindow() {
+        val fromFloating = intent?.getBooleanExtra("from_floating", false) ?: false
+        if (!fromFloating) return
+        
+        // 清除标志避免重复触发
+        intent?.removeExtra("from_floating")
+        
+        // 同步悬浮窗中的消息到主界面
+        syncMessagesFromFloatingWindow()
+        
+        val fromX = intent?.getIntExtra("from_x", 0) ?: 0
+        val fromY = intent?.getIntExtra("from_y", 0) ?: 0
+        val fromWidth = intent?.getIntExtra("from_width", 0) ?: 0
+        val fromHeight = intent?.getIntExtra("from_height", 0) ?: 0
+        
+        if (fromWidth <= 0 || fromHeight <= 0) return
+        
+        // 播放从小窗展开的动画
+        playExpandFromMiniWindowAnimation(fromX.toFloat(), fromY.toFloat(), fromWidth.toFloat(), fromHeight.toFloat())
+    }
+    
+    /**
+     * 从悬浮窗同步消息到主界面
+     */
+    private fun syncMessagesFromFloatingWindow() {
+        val c = requireActiveConversation()
+        var floatingMessages: List<String>? = null
+        
+        // 首先尝试从运行中的服务获取消息
+        val floatingService = FloatingChatService.getInstance()
+        if (floatingService != null) {
+            floatingMessages = floatingService.getMessages()
+        }
+        
+        // 如果服务未运行，从 SharedPreferences 恢复消息
+        if (floatingMessages == null || floatingMessages.isEmpty()) {
+            try {
+                val floatingPrefs = getSharedPreferences("floating_chat_prefs", MODE_PRIVATE)
+                val json = floatingPrefs.getString("floating_messages", null)
+                if (json != null) {
+                    val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                    floatingMessages = com.google.gson.Gson().fromJson(json, type) ?: emptyList()
+                }
+            } catch (e: Exception) {
+                floatingMessages = emptyList()
+            }
+        }
+        
+        if (floatingMessages?.isEmpty() != false) return
+        
+        // 解析悬浮窗消息并添加到当前对话
+        for (msg in floatingMessages!!) {
+            val isUser = msg.startsWith("我:")
+            val content = msg.removePrefix("我: ").removePrefix("AI: ").trim()
+            
+            // 跳过空消息和"思考中"消息
+            if (content.isBlank() || content == "思考中...") continue
+            
+            // 检查是否已存在该消息
+            val exists = c.messages.any { it.content == content && it.isUser == isUser }
+            if (!exists) {
+                val author = if (isUser) "我" else "AI"
+                c.messages.add(UiMessage(author = author, content = content, isUser = isUser))
+            }
+        }
+        
+        c.updatedAt = System.currentTimeMillis()
+        
+        // 重新渲染对话
+        renderConversation(c)
+        persistConversations()
+        
+        // 清空浮窗消息存储（已同步完成）
+        try {
+            val floatingPrefs = getSharedPreferences("floating_chat_prefs", MODE_PRIVATE)
+            floatingPrefs.edit().remove("floating_messages").apply()
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+    
+    /**
+     * 从小窗展开到全屏的动画
+     */
+    private fun playExpandFromMiniWindowAnimation(fromX: Float, fromY: Float, fromWidth: Float, fromHeight: Float) {
+        val contentView = binding.contentRoot
+        
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels.toFloat()
+        val screenHeight = displayMetrics.heightPixels.toFloat()
+        
+        // 计算初始缩放比例
+        val scaleX = fromWidth / screenWidth
+        val scaleY = fromHeight / screenHeight
+        val scale = minOf(scaleX, scaleY)
+        
+        // 设置初始状态
+        contentView.pivotX = fromX + fromWidth / 2
+        contentView.pivotY = fromY + fromHeight / 2
+        contentView.scaleX = scale
+        contentView.scaleY = scale
+        contentView.alpha = 0.7f
+        
+        // 展开动画
+        contentView.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .alpha(1f)
+            .setDuration(350)
+            .setInterpolator(DecelerateInterpolator(2f))
+            .setListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    contentView.pivotX = contentView.width / 2f
+                    contentView.pivotY = contentView.height / 2f
+                }
+            })
+            .start()
     }
 
     private fun maybeShowPermissionBottomSheet() {
@@ -235,7 +407,140 @@ class MainActivity : AppCompatActivity() {
 
                     true
                 }
+                R.id.action_floating_window -> {
+                    enterMiniWindowMode()
+                    true
+                }
                 else -> false
+            }
+        }
+    }
+    
+    /**
+     * 进入小窗模式
+     */
+    private fun enterMiniWindowMode() {
+        // 检查悬浮窗权限
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST_CODE)
+            return
+        }
+        
+        if (isAnimatingToMiniWindow) return
+        isAnimatingToMiniWindow = true
+        
+        hideKeyboard()
+        
+        // 播放缩小动画并启动悬浮窗
+        playCollapseToMiniWindowAnimation()
+    }
+    
+    /**
+     * 缩小到小窗的动画 - 类似微信语音通话缩小效果，一步到位
+     * 使用非线性弹性曲线，平滑过渡到目标位置
+     */
+    private fun playCollapseToMiniWindowAnimation() {
+        val contentView = binding.contentRoot
+        val displayMetrics = resources.displayMetrics
+        val density = displayMetrics.density
+        
+        // 目标小窗尺寸和位置
+        val miniWindowWidth = 280 * density
+        val miniWindowHeight = 360 * density
+        val margin = 20 * density
+        
+        // 小窗位置：右下角
+        val targetX = displayMetrics.widthPixels - miniWindowWidth - margin
+        val targetY = displayMetrics.heightPixels - miniWindowHeight - margin - 100 * density
+        
+        // 计算目标缩放比例
+        val scaleX = miniWindowWidth / displayMetrics.widthPixels
+        val scaleY = miniWindowHeight / displayMetrics.heightPixels
+        val targetScale = minOf(scaleX, scaleY)
+        
+        // 计算小窗中心点作为缩放中心
+        val targetCenterX = targetX + miniWindowWidth / 2
+        val targetCenterY = targetY + miniWindowHeight / 2
+        
+        // 设置缩放中心点为小窗目标中心
+        contentView.pivotX = targetCenterX
+        contentView.pivotY = targetCenterY
+        
+        // 收集当前聊天消息传递给小窗
+        val messagesList = ArrayList<String>()
+        activeConversation?.messages?.forEach { msg ->
+            messagesList.add("${if (msg.isUser) "我" else "AI"}: ${msg.content}")
+        }
+        
+        // 使用 ValueAnimator 实现更平滑的非线性动画
+        val animator = ValueAnimator.ofFloat(0f, 1f)
+        animator.duration = 380
+        // 使用弹性减速曲线，类似微信语音通话效果
+        animator.interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+        
+        val startScaleX = 1f
+        val startScaleY = 1f
+        val startAlpha = 1f
+        val endAlpha = 0f
+        
+        animator.addUpdateListener { anim ->
+            val progress = anim.animatedValue as Float
+            // 使用 easeOutExpo 曲线增强减速效果
+            val easedProgress = 1 - Math.pow(1.0 - progress.toDouble(), 3.0).toFloat()
+            
+            contentView.scaleX = startScaleX + (targetScale - startScaleX) * easedProgress
+            contentView.scaleY = startScaleY + (targetScale - startScaleY) * easedProgress
+            contentView.alpha = startAlpha + (endAlpha - startAlpha) * easedProgress
+            
+            // 添加轻微的旋转效果增加灵动感
+            contentView.rotation = 2f * progress * (1 - progress)
+        }
+        
+        animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: android.animation.Animator) {
+                // 启动悬浮窗服务，传递消息和位置
+                FloatingChatService.start(
+                    this@MainActivity,
+                    messages = messagesList,
+                    fromX = targetX,
+                    fromY = targetY,
+                    fromWidth = miniWindowWidth,
+                    fromHeight = miniWindowHeight
+                )
+                
+                // 重置视图状态
+                contentView.scaleX = 1f
+                contentView.scaleY = 1f
+                contentView.alpha = 1f
+                contentView.rotation = 0f
+                contentView.pivotX = contentView.width / 2f
+                contentView.pivotY = contentView.height / 2f
+                
+                isAnimatingToMiniWindow = false
+                
+                // 最小化 Activity（移到后台）
+                moveTaskToBack(true)
+            }
+        })
+        
+        animator.start()
+    }
+    
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == OVERLAY_PERMISSION_REQUEST_CODE) {
+            if (Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "悬浮窗权限已授予", Toast.LENGTH_SHORT).show()
+                // 权限获取后自动进入小窗模式
+                enterMiniWindowMode()
+            } else {
+                Toast.makeText(this, "需要悬浮窗权限才能使用小窗模式", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -255,25 +560,17 @@ class MainActivity : AppCompatActivity() {
         binding.navigationView.setBackgroundColor(Color.parseColor("#F5F8FF"))
         binding.navigationView.itemTextColor =
                 ColorStateList.valueOf(ContextCompat.getColor(this, R.color.blue_glass_text))
-        binding.contentRoot.post {
-            binding.contentRoot.pivotX = 0f
-            binding.contentRoot.pivotY = binding.contentRoot.height / 2f
-        }
+        
         binding.drawerLayout.addDrawerListener(
                 object : DrawerLayout.SimpleDrawerListener() {
                     override fun onDrawerSlide(drawerView: View, slideOffset: Float) {
                         val w = binding.navigationView.width.toFloat()
                         val tx = w * slideOffset
                         binding.contentRoot.translationX = tx
-                        val s = 1f - 0.04f * slideOffset
-                        binding.contentRoot.scaleX = s
-                        binding.contentRoot.scaleY = s
                     }
 
                     override fun onDrawerClosed(drawerView: View) {
                         binding.contentRoot.translationX = 0f
-                        binding.contentRoot.scaleX = 1f
-                        binding.contentRoot.scaleY = 1f
                     }
 
                     override fun onDrawerOpened(drawerView: View) {
@@ -712,6 +1009,11 @@ class MainActivity : AppCompatActivity() {
         persistConversations()
 
         appendMessageTyping("我", text, true)
+        
+        // 同步消息到悬浮窗（如果运行中）
+        if (FloatingChatService.isRunning()) {
+            FloatingChatService.getInstance()?.addMessage("我: $text", isUser = true)
+        }
 
         binding.inputMessage.text?.clear()
         showThinking()
@@ -734,6 +1036,11 @@ class MainActivity : AppCompatActivity() {
 
             removeThinking()
             appendMessageTyping("模型", finalReply, false, true)
+            
+            // 同步 AI 回复到悬浮窗（如果运行中）
+            if (FloatingChatService.isRunning()) {
+                FloatingChatService.getInstance()?.addMessage("AI: $finalReply", isUser = false)
+            }
         }
     }
 
@@ -1483,32 +1790,35 @@ class MainActivity : AppCompatActivity() {
         )
     }
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val density = resources.displayMetrics.density
+        val touchSlop = 12 * density
+        val swipeThreshold = 80 * density
+        
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 swipeStartX = ev.rawX
                 swipeStartY = ev.rawY
-                swipeHandled = false
+                swipeTracking = true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (swipeHandled) return super.dispatchTouchEvent(ev)
+                if (!swipeTracking) return super.dispatchTouchEvent(ev)
+                
                 val dx = ev.rawX - swipeStartX
                 val dy = ev.rawY - swipeStartY
-                if (abs(dx) > swipeTouchSlop && abs(dx) > abs(dy) * 1.2f) {
-                    val thresholdPx = 48f * resources.displayMetrics.density
+                
+                // 检测水平右滑动作
+                if (dx > touchSlop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                     val isOpen = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
-
-                    if (!isOpen && dx > thresholdPx) {
-                        hideKeyboard()
-                        binding.drawerLayout.openDrawer(GravityCompat.START)
-                        swipeHandled = true
-                    } else if (isOpen && dx < -thresholdPx) {
-                        binding.drawerLayout.closeDrawer(GravityCompat.START)
-                        swipeHandled = true
+                    
+                    // 右滑距离超过阈值，打开侧边栏
+                    if (!isOpen && dx > swipeThreshold) {
+                        binding.drawerLayout.openDrawer(GravityCompat.START, true)
+                        swipeTracking = false
                     }
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                swipeHandled = false
+                swipeTracking = false
             }
         }
         return super.dispatchTouchEvent(ev)
@@ -1526,6 +1836,9 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
 
         super.onDestroy()
+        
+        // 清除消息同步监听器，防止内存泄漏
+        FloatingChatService.setMessageSyncListener(null)
 
         stopLocalVoiceInput()
 

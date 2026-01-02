@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="12dp"
+    app:cardBackgroundColor="@android:color/white">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- 标题栏：可拖动区域 -->
+        <LinearLayout
+            android:id="@+id/floatingTitleBar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="8dp"
+            android:background="@drawable/floating_title_bg">
+
+            <!-- 左侧：全屏/展开按钮 -->
+            <ImageButton
+                android:id="@+id/btnFullscreen"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_fullscreen_24"
+                android:scaleType="centerInside"
+                android:contentDescription="展开全屏"
+                android:padding="4dp" />
+
+            <!-- 收起按钮（向下箭头） -->
+            <ImageButton
+                android:id="@+id/btnMinimize"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_minimize_24"
+                android:scaleType="centerInside"
+                android:contentDescription="收起"
+                android:padding="4dp"
+                android:visibility="gone" />
+
+            <!-- 中间留白，可拖动 -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <!-- 右侧：主页按钮 -->
+            <ImageButton
+                android:id="@+id/btnHome"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_home_24"
+                android:scaleType="centerInside"
+                android:contentDescription="返回主页"
+                android:padding="4dp" />
+
+            <!-- 关闭按钮 -->
+            <ImageButton
+                android:id="@+id/btnClose"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_close_24"
+                android:scaleType="centerInside"
+                android:contentDescription="关闭"
+                android:padding="4dp" />
+
+        </LinearLayout>
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E0E0E0" />
+
+        <!-- 消息内容区域 -->
+        <ScrollView
+            android:id="@+id/scrollArea"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/messagesContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp" />
+
+        </ScrollView>
+
+        <!-- 底部输入区域 -->
+        <LinearLayout
+            android:id="@+id/inputBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp"
+            android:background="#F5F5F5">
+
+            <EditText
+                android:id="@+id/inputMessage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="40dp"
+                android:maxHeight="80dp"
+                android:background="@drawable/floating_input_bg"
+                android:hint="输入消息..."
+                android:textSize="14sp"
+                android:textColor="@android:color/black"
+                android:textColorHint="#999999"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp"
+                android:inputType="textMultiLine"
+                android:maxLines="3" />
+
+            <ImageButton
+                android:id="@+id/btnAdd"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_add_24"
+                android:scaleType="centerInside"
+                android:contentDescription="添加"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/btnSend"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/ripple_circle"
+                android:src="@drawable/ic_send_24"
+                android:scaleType="centerInside"
+                android:contentDescription="发送" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>
