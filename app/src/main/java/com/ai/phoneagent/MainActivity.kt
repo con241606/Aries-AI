@@ -26,6 +26,7 @@ import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -37,6 +38,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.appcompat.widget.ActionMenuView
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -109,6 +111,8 @@ class MainActivity : AppCompatActivity() {
     // 小窗模式相关
     private var isAnimatingToMiniWindow = false
     private val OVERLAY_PERMISSION_REQUEST_CODE = 1234
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1235
+    private var pendingEnterMiniWindowAfterNotifPerm: Boolean = false
 
     private val conversationsKey = "conversations_json"
     private val activeConversationIdKey = "active_conversation_id"
@@ -390,12 +394,14 @@ class MainActivity : AppCompatActivity() {
     private fun setupToolbar() {
 
         binding.topAppBar.setNavigationOnClickListener {
+            vibrateLight()
             hideKeyboard()
 
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
         binding.topAppBar.setOnMenuItemClickListener { item ->
+            vibrateLight()
             when (item.itemId) {
                 R.id.action_new_chat -> {
                     startNewChat(clearUi = true)
@@ -414,12 +420,44 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
+
+        // 轻微上移导航与菜单图标，确保与标题对齐
+        offsetTopBarIcons()
+    }
+
+    private fun offsetTopBarIcons() {
+        val offsetPx = -2f * resources.displayMetrics.density
+        binding.topAppBar.post {
+            for (i in 0 until binding.topAppBar.childCount) {
+                val child = binding.topAppBar.getChildAt(i)
+                when (child) {
+                    is ActionMenuView, is ImageButton -> child.translationY = offsetPx
+                }
+            }
+        }
     }
     
     /**
      * 进入小窗模式
      */
     private fun enterMiniWindowMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notifGranted =
+                    ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+            if (!notifGranted) {
+                pendingEnterMiniWindowAfterNotifPerm = true
+                ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
+                return
+            }
+        }
+
         // 检查悬浮窗权限
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_SHORT).show()
@@ -541,6 +579,39 @@ class MainActivity : AppCompatActivity() {
                 enterMiniWindowMode()
             } else {
                 Toast.makeText(this, "需要悬浮窗权限才能使用小窗模式", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+            requestCode: Int,
+            permissions: Array<out String>,
+            grantResults: IntArray
+    ) {
+
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == 100 &&
+                        pendingStartVoice &&
+                        grantResults.isNotEmpty() &&
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+
+            pendingStartVoice = false
+
+            startLocalVoiceInput()
+        }
+
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            val granted =
+                    grantResults.isNotEmpty() &&
+                            grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (pendingEnterMiniWindowAfterNotifPerm && granted) {
+                pendingEnterMiniWindowAfterNotifPerm = false
+                enterMiniWindowMode()
+            } else {
+                pendingEnterMiniWindowAfterNotifPerm = false
+                Toast.makeText(this, "需要通知权限以显示小窗运行通知", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -675,12 +746,15 @@ class MainActivity : AppCompatActivity() {
         binding.navigationView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_automation -> {
+                    vibrateLight()
                     startActivity(android.content.Intent(this, AutomationActivity::class.java))
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 }
                 R.id.nav_about -> {
 
-                    Toast.makeText(this, "Phone Agent（轻量框架版）", Toast.LENGTH_SHORT).show()
+                    vibrateLight()
+
+                    Toast.makeText(this, "Phone Agent(稳定版)", Toast.LENGTH_SHORT).show()
 
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 }
@@ -1375,26 +1449,6 @@ class MainActivity : AppCompatActivity() {
             pendingStartVoice = true
 
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 100)
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-            requestCode: Int,
-            permissions: Array<out String>,
-            grantResults: IntArray
-    ) {
-
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        if (requestCode == 100 &&
-                        pendingStartVoice &&
-                        grantResults.isNotEmpty() &&
-                        grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-
-            pendingStartVoice = false
-
-            startLocalVoiceInput()
         }
     }
 

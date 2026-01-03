@@ -5,6 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.widget.EditText
 import android.widget.TextView
@@ -83,15 +87,23 @@ class AutomationActivity : AppCompatActivity() {
 
         setupLogCopy()
 
-        binding.topAppBar.setNavigationOnClickListener { finish() }
+        binding.topAppBar.setNavigationOnClickListener {
+            vibrateLight()
+            finish()
+        }
 
         btnOpenAccessibility.setOnClickListener {
+            vibrateLight()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        btnRefreshAccessibility.setOnClickListener { refreshAccessibilityStatus() }
+        btnRefreshAccessibility.setOnClickListener {
+            vibrateLight()
+            refreshAccessibilityStatus()
+        }
 
         btnRunDemo.setOnClickListener {
+            vibrateLight()
             val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
             val apiKey = prefs.getString("api_key", "").orEmpty()
             if (apiKey.isBlank()) {
@@ -113,9 +125,18 @@ class AutomationActivity : AppCompatActivity() {
 
         btnPauseAgent.isEnabled = false
         btnStopAgent.isEnabled = false
-        btnStartAgent.setOnClickListener { startModelDrivenAutomation() }
-        btnPauseAgent.setOnClickListener { togglePause() }
-        btnStopAgent.setOnClickListener { stopModelDrivenAutomation() }
+        btnStartAgent.setOnClickListener {
+            vibrateLight()
+            startModelDrivenAutomation()
+        }
+        btnPauseAgent.setOnClickListener {
+            vibrateLight()
+            togglePause()
+        }
+        btnStopAgent.setOnClickListener {
+            vibrateLight()
+            stopModelDrivenAutomation()
+        }
 
         refreshAccessibilityStatus()
     }
@@ -128,6 +149,37 @@ class AutomationActivity : AppCompatActivity() {
     override fun onDestroy() {
         AutomationOverlay.hide()
         super.onDestroy()
+    }
+
+    /** 与主界面一致的轻微震感反馈 */
+    private fun vibrateLight() {
+        try {
+            val vibrator =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val manager =
+                                getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                        manager?.defaultVibrator
+                    } else {
+                        @Suppress("DEPRECATION")
+                        getSystemService(VIBRATOR_SERVICE) as? Vibrator
+                    }
+                            ?: return
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(
+                            VibrationEffect.createOneShot(
+                                    30,
+                                    VibrationEffect.DEFAULT_AMPLITUDE
+                            )
+                    )
+                } else {
+                    @Suppress("DEPRECATION") vibrator.vibrate(30)
+                }
+            } catch (_: Throwable) {
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     private fun refreshAccessibilityStatus() {
