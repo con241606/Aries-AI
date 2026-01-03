@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 外层：淡蓝渐变边缘 -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="26dp" />
+            <gradient
+                android:angle="315"
+                android:startColor="#77B6E6FF"
+                android:endColor="#3383CFFF" />
+        </shape>
+    </item>
+
+    <!-- 内层：白底 -->
+    <item
+        android:left="2dp"
+        android:top="2dp"
+        android:right="2dp"
+        android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="24dp" />
+            <solid android:color="@android:color/white" />
+        </shape>
+    </item>
+
+    <!-- 内发光：非常轻微的径向蓝光（在按钮内部边缘更明显） -->
+    <item
+        android:left="3dp"
+        android:top="3dp"
+        android:right="3dp"
+        android:bottom="3dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="23dp" />
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="0.25"
+                android:gradientRadius="220dp"
+                android:startColor="#1A6BA8FF"
+                android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+
+</layer-list>

@@ -1,6 +1,6 @@
 # Phone Agent 开发文档
 
-> 最后更新：2026-01-02
+> 最后更新：2026-01-03
 
 ## 0. 阅读指南（给 AI / 新同学）
 
@@ -9,7 +9,7 @@
 
 ## 目录
 
-- [1. 最新状态（2026-01-02）](#1-最新状态2026-01-02)
+- [1. 最新状态（2026-01-03）](#1-最新状态2026-01-03)
 - [2. 关键代码入口与数据流索引](#2-关键代码入口与数据流索引)
 - [3. 关键决策（待确认）](#3-关键决策待确认)
 - [4. 近期路线图（对齐 TODO）](#4-近期路线图对齐-todo)
@@ -20,7 +20,35 @@
 - [9. 历史任务进度（旧）](#9-历史任务进度旧)
 - [10. 大文件/LFS 与协作提醒](#10-大文件lfs-与协作提醒)
 
-## 1. 最新状态（2026-01-02）
+## 1. 最新状态（2026-01-03）
+
+### 兼容性与测试矩阵（必须遵守）
+
+- **目标 Android 版本范围**：Android 11 - Android 16（即 API 30 - API 36）。
+  - 说明：本项目 `minSdk=30`，要求从 Android 11 起可用；同时需要在新系统（目前真机/环境为 Android 16）上保持行为一致。
+- **小窗/悬浮窗相关回归必测**：Android 11/13/14/16 至少各覆盖 1 台/1 个模拟器（重点关注 Android 14+ 对后台启动 Activity 的限制）。
+
+### 小窗返回主界面（Android 11-16 最终方案）
+
+- **目标体验**：
+  - 小窗 **Home/放大**：关闭小窗 + 可靠回到 `MainActivity`。
+  - 小窗 **X**：仅关闭小窗，不回到 App。
+- **最终技术方案（优先级从高到低）**：
+  - **A. 任务栈前置（最稳，优先使用）**：`ActivityManager.appTasks` 中找到包含 `MainActivity` 的任务，`moveToFront()` 后 `startActivity(..., MainActivityIntent)`，保证回到同一任务栈。
+  - **B. 前台跳板 + PendingIntent（对齐 Android 14+）**：通过 `PendingIntent -> LaunchProxyActivity -> MainActivity` 拉起；Android 14+ 使用 `ActivityOptions.setPendingIntentBackgroundActivityStartMode(MODE_BACKGROUND_ACTIVITY_START_ALLOWED)` 显式 opt-in。
+  - **C. 兜底**：若上述路径异常，再直接 `startActivity(...)`（仍可能被系统限制，但作为最后兜底）。
+- **原因说明**：
+  - Android 14+（targetSdk 34+）对“后台启动 Activity”限制更严格，Overlay 场景在不同 ROM/系统版本上可能出现“点击后只关闭小窗但 Activity 未被拉起”的不确定性；因此需要任务栈前置 + PendingIntent opt-in 的双保险，行为更接近 Operit 等成熟悬浮窗应用。
+
+- **稳定性与防闪关键点（已落地）**：
+  - **ACK 机制**：主界面在检测到从小窗返回（`intent.getBooleanExtra("from_floating", false)`）后，发送广播 `FloatingChatService.ACTION_FLOATING_RETURNED` 作为“已回前台”确认。
+    - `MainActivity` 同时在 `onResume()` 与 `onNewIntent()` 触发该处理，避免任务栈复用（`onNewIntent`）时 ACK 发送过晚导致服务误判失败。
+  - **服务停机时机**：`FloatingChatService` 在 Home/放大后不会立刻 `stopSelf()`，而是等待 ACK；收到 ACK 才停止服务，确保前台服务通知不被过早移除。
+  - **失败重试与超时**（当前实现参数）：
+    - 等待 ACK 超时：`6000ms`
+    - 期间重试拉起主界面：`900ms` / `1700ms` / `2600ms`
+    - 拉起节流：`700ms`
+  - **视觉策略（减少“闪一下”）**：点击 Home/放大后，小窗先做收起淡出动画，并设置短 `startDelay`（`120ms`）让系统有时间切到主界面；动画结束后将 View 设为 `GONE`（不立即移除 Window），并在返回期间设置 `FLAG_NOT_TOUCHABLE`，避免透明 overlay 挡触摸；最终由 ACK 驱动服务结束并在 `onDestroy()` 统一移除 overlay。
 
 ### 已完成
 
@@ -35,6 +63,11 @@
   - 涉及文件：
     - `app/src/main/java/com/ai/phoneagent/MainActivity.kt`
     - `app/src/main/java/com/ai/phoneagent/FloatingChatService.kt`
+
+- **小窗返回主界面稳定性与防闪（2026-01-03）**
+  - `MainActivity`：在 `onResume()` / `onNewIntent()` 第一时间处理 `from_floating`，并发送 ACK 广播。
+  - `FloatingChatService`：等待 ACK 后再 `stopSelf()`；超时恢复小窗；期间有限次重试拉起主界面。
+  - 小窗回收动画：`startDelay=120ms`，动画结束后 View 设为 `GONE`（不立即移除 Window），并用 `FLAG_NOT_TOUCHABLE` 避免挡触摸，减少返回主界面时的视觉闪烁。
 
 - **语音识别体验优化（2026-01-02）**
   - **完全移除 Vosk**：删除旧的 Vosk 模型文件目录（`assets/model/`）和相关依赖，清理代码。
@@ -252,6 +285,14 @@
 - **涉及文件**：`MainActivity.kt`
 
 ## 7. 更新记录（Changelog）
+
+### 更新记录 · 2026-01-03
+
+- 小窗模式（FloatingChatService / MainActivity）
+  - 修复“从小窗回到 App 偶发明显闪一下 / 重试导致二次拉起”的体验问题。
+  - `MainActivity` 在 `onResume()` 与 `onNewIntent()` 统一处理 `from_floating` 并尽早发送 ACK。
+  - `FloatingChatService` 在 Home/放大后等待 ACK 再停服务，避免前台通知过早消失；增加有限次重试与超时恢复逻辑。
+  - 视觉策略：收起淡出动画增加短 `startDelay`，并在动画后将 View 设为 `GONE`（不立即移除 Window），返回期间设置 `FLAG_NOT_TOUCHABLE` 避免挡触摸。
 
 ### 更新记录 · 2026-01-02
 

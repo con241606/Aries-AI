@@ -23,4 +23,34 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowAnimationStyle">@android:style/Animation</item>
     </style>
+
+    <!-- 蓝色玻璃风格对话框 -->
+    <style name="BlueGlassAlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">@color/blue_glass_primary</item>
+        <item name="colorOnSurface">@color/blue_glass_text</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/BlueGlassDialogTitle</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/BlueGlassDialogBody</item>
+        <item name="buttonBarPositiveButtonStyle">@style/BlueGlassDialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/BlueGlassDialogButton</item>
+        <item name="shapeAppearanceOverlay">@style/BlueGlassDialogShape</item>
+    </style>
+
+    <style name="BlueGlassDialogTitle" parent="MaterialAlertDialog.MaterialComponents.Title.Text">
+        <item name="android:textColor">@color/blue_glass_text</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="BlueGlassDialogBody" parent="MaterialAlertDialog.MaterialComponents.Body.Text">
+        <item name="android:textColor">@color/blue_glass_text</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="BlueGlassDialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/blue_glass_primary</item>
+    </style>
+
+    <style name="BlueGlassDialogShape" parent="">
+        <item name="cornerSize">16dp</item>
+    </style>
 </resources>
