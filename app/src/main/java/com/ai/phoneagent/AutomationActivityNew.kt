@@ -1,9 +1,13 @@
 package com.ai.phoneagent
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -11,11 +15,16 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
+import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.core.widget.NestedScrollView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -25,12 +34,15 @@ import com.ai.phoneagent.core.tools.AIToolHandler
 import com.ai.phoneagent.core.tools.ToolRegistration
 import com.ai.phoneagent.databinding.ActivityAutomationBinding
 import com.ai.phoneagent.net.AutoGlmClient
+import com.ai.phoneagent.speech.SherpaSpeechRecognizer
 import com.google.android.material.button.MaterialButton
 import kotlin.coroutines.resume
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import android.view.animation.OvershootInterpolator
 
 /**
@@ -46,11 +58,20 @@ class AutomationActivityNew : AppCompatActivity() {
     private lateinit var tvAccStatus: TextView
     private lateinit var tvLog: TextView
     private lateinit var etTask: EditText
+    private lateinit var btnVoiceTask: ImageButton
     private lateinit var btnOpenAccessibility: MaterialButton
     private lateinit var btnRefreshAccessibility: MaterialButton
     private lateinit var btnStartAgent: MaterialButton
     private lateinit var btnPauseAgent: MaterialButton
     private lateinit var btnStopAgent: MaterialButton
+
+    private var sherpaSpeechRecognizer: SherpaSpeechRecognizer? = null
+    private var isListening: Boolean = false
+    private var micAnimator: ObjectAnimator? = null
+    private var voiceInputAnimJob: Job? = null
+    private var savedTaskText: String = ""
+    private var voicePrefix: String = ""
+    private var pendingStartVoice: Boolean = false
     
     // 推荐语句滚动相关
     private lateinit var tvRecommendTask: TextView
@@ -65,6 +86,19 @@ class AutomationActivityNew : AppCompatActivity() {
     private val serviceId by lazy {
         "$packageName/${PhoneAgentAccessibilityService::class.java.name}"
     }
+
+    private val audioPermissionLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (granted) {
+                    if (pendingStartVoice) {
+                        pendingStartVoice = false
+                        startLocalVoiceInput()
+                    }
+                } else {
+                    pendingStartVoice = false
+                    Toast.makeText(this, "需要麦克风权限才能语音输入", Toast.LENGTH_SHORT).show()
+                }
+            }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +128,7 @@ class AutomationActivityNew : AppCompatActivity() {
         tvAccStatus = binding.root.findViewById(R.id.tvAccStatus)
         tvLog = binding.root.findViewById(R.id.tvLog)
         etTask = binding.root.findViewById(R.id.etTask)
+        btnVoiceTask = binding.root.findViewById(R.id.btnVoiceTask)
         btnOpenAccessibility = binding.root.findViewById(R.id.btnOpenAccessibility)
         btnRefreshAccessibility = binding.root.findViewById(R.id.btnRefreshAccessibility)
         btnStartAgent = binding.root.findViewById(R.id.btnStartAgent)
@@ -130,6 +165,15 @@ class AutomationActivityNew : AppCompatActivity() {
             checkAccessibilityStatus()
         }
 
+        btnVoiceTask.setOnClickListener {
+            vibrateLight()
+            if (isListening) {
+                stopLocalVoiceInput()
+            } else {
+                ensureAudioPermission { startLocalVoiceInput() }
+            }
+        }
+
         btnStartAgent.setOnClickListener {
             vibrateLight()
             startAgent()
@@ -153,6 +197,13 @@ class AutomationActivityNew : AppCompatActivity() {
 
         // 初始检查
         checkAccessibilityStatus()
+
+        initSherpaModel()
+    }
+
+    override fun onStop() {
+        stopLocalVoiceInput(triggerRecognizerStop = true)
+        super.onStop()
     }
 
     override fun onResume() {
@@ -361,6 +412,196 @@ class AutomationActivityNew : AppCompatActivity() {
         appendLog(if (paused) "已暂停（等待继续）" else "已继续")
     }
 
+    private fun initSherpaModel() {
+        lifecycleScope.launch {
+            try {
+                sherpaSpeechRecognizer = SherpaSpeechRecognizer(this@AutomationActivityNew)
+                val success = sherpaSpeechRecognizer?.initialize() == true
+                if (!success) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                                        this@AutomationActivityNew,
+                                        "语音模型初始化失败，请重试",
+                                        Toast.LENGTH_LONG
+                                )
+                                .show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                                    this@AutomationActivityNew,
+                                    "语音模型异常: ${e.message}",
+                                    Toast.LENGTH_LONG
+                            )
+                            .show()
+                }
+            }
+        }
+    }
+
+    private fun ensureAudioPermission(onGranted: () -> Unit) {
+        val granted =
+                ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                        PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            pendingStartVoice = false
+            onGranted()
+        } else {
+            pendingStartVoice = true
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startVoiceInputAnimation() {
+        voiceInputAnimJob?.cancel()
+        savedTaskText = etTask.text?.toString().orEmpty()
+        voiceInputAnimJob = lifecycleScope.launch {
+            var dotCount = 1
+            while (true) {
+                val dots = ".".repeat(dotCount)
+                etTask.setText("正在语音输入$dots")
+                etTask.setSelection(etTask.text?.length ?: 0)
+                dotCount = if (dotCount >= 3) 1 else dotCount + 1
+                delay(400)
+            }
+        }
+    }
+
+    private fun stopVoiceInputAnimation() {
+        voiceInputAnimJob?.cancel()
+        voiceInputAnimJob = null
+    }
+
+    private fun startLocalVoiceInput() {
+        val recognizer = sherpaSpeechRecognizer
+        if (recognizer == null) {
+            Toast.makeText(this, "语音模型未初始化，请稍候重试", Toast.LENGTH_SHORT).show()
+            initSherpaModel()
+            return
+        }
+        if (!recognizer.isReady()) {
+            Toast.makeText(this, "语音模型加载中，请稍候…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isListening) return
+
+        voicePrefix =
+                etTask.text?.toString().orEmpty().trim().let { prefix ->
+                    if (prefix.isBlank()) "" else if (prefix.endsWith(" ")) prefix else "$prefix "
+                }
+
+        startVoiceInputAnimation()
+
+        recognizer.startListening(
+                object : SherpaSpeechRecognizer.RecognitionListener {
+                    override fun onPartialResult(text: String) {
+                        runOnUiThread {
+                            stopVoiceInputAnimation()
+                            val txt = (voicePrefix + text).trimStart()
+                            etTask.setText(txt)
+                            etTask.setSelection(etTask.text?.length ?: 0)
+                        }
+                    }
+
+                    override fun onResult(text: String) {
+                        runOnUiThread {
+                            stopVoiceInputAnimation()
+                            val txt = (voicePrefix + text).trimStart()
+                            etTask.setText(txt)
+                            etTask.setSelection(etTask.text?.length ?: 0)
+                        }
+                    }
+
+                    override fun onFinalResult(text: String) {
+                        runOnUiThread {
+                            stopVoiceInputAnimation()
+                            val txt = (voicePrefix + text).trimStart()
+                            etTask.setText(if (txt.isBlank()) savedTaskText else txt)
+                            etTask.setSelection(etTask.text?.length ?: 0)
+                            stopLocalVoiceInput(triggerRecognizerStop = false)
+                        }
+                    }
+
+                    override fun onError(exception: Exception) {
+                        runOnUiThread {
+                            stopVoiceInputAnimation()
+                            etTask.setText(savedTaskText)
+                            Toast.makeText(
+                                            this@AutomationActivityNew,
+                                            "识别失败: ${exception.message}",
+                                            Toast.LENGTH_SHORT
+                                    )
+                                    .show()
+                            stopLocalVoiceInput(triggerRecognizerStop = false)
+                        }
+                    }
+
+                    override fun onTimeout() {
+                        runOnUiThread {
+                            stopVoiceInputAnimation()
+                            etTask.setText(savedTaskText)
+                            Toast.makeText(this@AutomationActivityNew, "语音识别超时", Toast.LENGTH_SHORT)
+                                    .show()
+                            stopLocalVoiceInput(triggerRecognizerStop = false)
+                        }
+                    }
+                }
+        )
+
+        isListening = true
+        startMicAnimation()
+    }
+
+    private fun stopLocalVoiceInput(triggerRecognizerStop: Boolean = true) {
+        val recognizer = sherpaSpeechRecognizer
+        stopVoiceInputAnimation()
+
+        val currentText = etTask.text?.toString().orEmpty()
+        if (currentText.startsWith("正在语音输入")) {
+            etTask.setText(savedTaskText)
+            etTask.setSelection(etTask.text?.length ?: 0)
+        }
+
+        if (triggerRecognizerStop) {
+            if (recognizer?.isListening() == true) {
+                recognizer.stopListening()
+            } else {
+                recognizer?.cancel()
+            }
+        } else {
+            recognizer?.cancel()
+        }
+
+        isListening = false
+        stopMicAnimation()
+    }
+
+    private fun startMicAnimation() {
+        if (micAnimator != null) return
+
+        val sx = PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.18f)
+        val sy = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.18f)
+        val a = PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.75f)
+
+        micAnimator =
+                ObjectAnimator.ofPropertyValuesHolder(btnVoiceTask, sx, sy, a).apply {
+                    duration = 520
+                    repeatCount = ObjectAnimator.INFINITE
+                    repeatMode = ObjectAnimator.REVERSE
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+    }
+
+    private fun stopMicAnimation() {
+        micAnimator?.cancel()
+        micAnimator = null
+        btnVoiceTask.scaleX = 1f
+        btnVoiceTask.scaleY = 1f
+        btnVoiceTask.alpha = 1f
+    }
+
     /**
      * 获取API Key
      */
@@ -483,6 +724,9 @@ class AutomationActivityNew : AppCompatActivity() {
         super.onDestroy()
         recommendJob?.cancel()
         recommendJob = null
+        stopLocalVoiceInput(triggerRecognizerStop = true)
+        sherpaSpeechRecognizer?.shutdown()
+        sherpaSpeechRecognizer = null
         stopAgent()
     }
 }

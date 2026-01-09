@@ -1000,7 +1000,7 @@ class MainActivity : AppCompatActivity() {
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             if (imeVisible && !lastImeVisible) {
                 binding.scrollArea.post {
-                    binding.scrollArea.fullScroll(android.view.View.FOCUS_DOWN)
+                    binding.scrollArea.smoothScrollTo(0, binding.messagesContainer.height)
                 }
             }
             lastImeVisible = imeVisible
@@ -1068,8 +1068,9 @@ class MainActivity : AppCompatActivity() {
         
         // 渲染完后滚动到底部
         binding.messagesContainer.post {
-            (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                android.view.View.FOCUS_DOWN
+            (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                0,
+                binding.messagesContainer.height
             )
         }
     }
@@ -1479,8 +1480,9 @@ class MainActivity : AppCompatActivity() {
         binding.messagesContainer.addView(tv, lp)
 
         binding.messagesContainer.post {
-            (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                    android.view.View.FOCUS_DOWN
+            (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                    0,
+                    binding.messagesContainer.height
             )
         }
 
@@ -1514,8 +1516,9 @@ class MainActivity : AppCompatActivity() {
             
             // 最终滚动到底部
             binding.messagesContainer.post {
-                (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                        android.view.View.FOCUS_DOWN
+                (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                        0,
+                        binding.messagesContainer.height
                 )
             }
         }
@@ -1544,8 +1547,9 @@ class MainActivity : AppCompatActivity() {
                         }
         binding.messagesContainer.addView(tv, lp)
         binding.messagesContainer.post {
-            (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                    android.view.View.FOCUS_DOWN
+            (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                    0,
+                    binding.messagesContainer.height
             )
         }
     }
@@ -1586,8 +1590,9 @@ class MainActivity : AppCompatActivity() {
         binding.messagesContainer.addView(tv, lp)
 
         binding.messagesContainer.post {
-            (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                    android.view.View.FOCUS_DOWN
+            (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                    0,
+                    binding.messagesContainer.height
             )
         }
 
@@ -1642,8 +1647,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.messagesContainer.post {
-            (binding.messagesContainer.parent as? android.widget.ScrollView)?.fullScroll(
-                    android.view.View.FOCUS_DOWN
+            (binding.messagesContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(
+                    0,
+                    binding.messagesContainer.height
             )
         }
     }

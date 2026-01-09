@@ -1,6 +1,6 @@
 # Phone Agent 开发文档
 
-> 最后更新：2026-01-08
+> 最后更新：2026-01-09
 
 ## 0. 阅读指南（给 AI / 新同学）
 
@@ -10,7 +10,7 @@
 
 ## 目录
 
-- [1. 最新状态（2026-01-08）](#1-最新状态2026-01-08)
+- [1. 最新状态（2026-01-09）](#1-最新状态2026-01-09)
 - [自动化升级计划（按 Operit 方法论全面对齐｜仅无障碍）](./自动化升级计划.md)
 - [2. 关键代码入口与数据流索引](#2-关键代码入口与数据流索引)
 - [3. 关键决策（待确认）](#3-关键决策待确认)
@@ -22,7 +22,27 @@
 - [9. 历史任务进度（旧）](#9-历史任务进度旧)
 - [10. 大文件/LFS 与协作提醒](#10-大文件lfs-与协作提醒)
 
-## 1. 最新状态（2026-01-08）
+## 1. 最新状态（2026-01-09）
+
+### 输入框偶现失焦修复 + 自动化语音输入增强（2026-01-09）
+
+- **主界面输入框偶现失焦（已修复）**：
+  - **现象**：点击输入框时光标闪一下，随后输入内容落不到输入框。
+  - **根因**：多处使用 `ScrollView.fullScroll(FOCUS_DOWN)` 会触发 `requestFocus`，在输入框刚获焦时被抢走。
+  - **修复**：统一改为 `smoothScrollTo(0, messagesContainer.height)`，避免抢焦点。
+  - 涉及文件：`MainActivity.kt`
+
+- **小窗稳定性（回退到可显示版本）**：
+  - 为恢复“可显示/可返回”的稳定行为，小窗相关实现回退到上个稳定版本；后续在此基础上再逐步叠加增量能力。
+  - 涉及文件：`FloatingChatService.kt`、`MainActivity.kt`
+
+- **AutoGlmClient：流式解析增强（进行中）**：
+  - 增加对 SSE 流式响应的解析，支持分别回调 `reasoning_content` 与 `content` 增量，并对“空流响应”做失败判定。
+  - 涉及文件：`net/AutoGlmClient.kt`
+
+- **AutomationActivityNew：语音输入（Sherpa-ncnn）增强（进行中）**：
+  - 增加录音权限请求、输入框“正在语音输入...”点动画、麦克风按钮呼吸动画、生命周期释放等。
+  - 涉及文件：`AutomationActivityNew.kt`
 
 ### 小窗关闭防闪优化 + 进度百分比精准 + 主页对话&操作区修复（2026-01-08）
 
@@ -356,7 +376,36 @@
 - **修复/规避**：在 `MainActivity.dispatchTouchEvent` 中实现“主页任意位置右滑超过阈值触发打开 Drawer”的判定，然后调用 `openDrawer(GravityCompat.START, true)` 打开。
 - **涉及文件**：`MainActivity.kt`
 
+### 6.10 主界面输入框点击后偶现失焦（已修复）
+
+- **现象**：点击输入框光标闪动一下，随后输入的字不落到输入框。
+- **影响**：输入体验不稳定，用户误以为输入框失效。
+- **根因**：多处 `ScrollView.fullScroll(FOCUS_DOWN)` 会触发 `requestFocus`，在用户点击输入框获焦后抢走焦点。
+- **修复/规避**：将相关滚动逻辑替换为 `smoothScrollTo(...)`，避免焦点被 ScrollView 抢夺。
+- **涉及文件**：`MainActivity.kt`
+
 ## 7. 更新记录（Changelog）
+
+### 更新记录 · 2026-01-09
+
+- **修复：主界面输入框偶现失焦**
+  - 将多处 `ScrollView.fullScroll(FOCUS_DOWN)` 替换为 `smoothScrollTo(...)`，避免滚动逻辑抢走输入框焦点。
+  - 涉及文件：`MainActivity.kt`
+
+- **小窗：回退到可显示版本**
+  - 为恢复稳定性，小窗相关实现回退到上个稳定版本（后续再逐步叠加能力）。
+  - 涉及文件：`FloatingChatService.kt`、`MainActivity.kt`
+
+- **AutoGlmClient：流式解析增强（进行中）**
+  - SSE 流式解析：分别回调 `reasoning_content` 与 `content` 增量；空流响应判定为失败。
+  - 涉及文件：`net/AutoGlmClient.kt`
+
+- **AutomationActivityNew：语音输入增强（进行中）**
+  - 录音权限请求 + “正在语音输入...”点动画 + 麦克风呼吸动画 + 资源释放。
+  - 涉及文件：`AutomationActivityNew.kt`
+
+- **仓库忽略规则（待确认）**
+  - `.gitignore` 中 `temp/` 是否需要忽略待定（避免大文件/临时资源误入版本控制）。
 
 ### 更新记录 · 2026-01-08
 
