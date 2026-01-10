@@ -16,7 +16,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:visibility="gone"
-        android:background="#F5F7FA"
+        android:background="@color/thinking_background"
         android:padding="8dp"
         android:layout_marginBottom="8dp">
 

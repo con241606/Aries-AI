@@ -43,7 +43,6 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
-import com.ai.phoneagent.net.AutoGlmClient
 import com.ai.phoneagent.net.ChatRequestMessage
 import kotlinx.coroutines.*
 
