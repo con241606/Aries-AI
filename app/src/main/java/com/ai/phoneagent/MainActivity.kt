@@ -44,6 +44,7 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.ai.phoneagent.databinding.ActivityMainBinding
+import com.ai.phoneagent.helper.StreamRenderHelper
 import com.ai.phoneagent.net.AutoGlmClient
 import com.ai.phoneagent.net.ChatRequestMessage
 import kotlinx.coroutines.Dispatchers
@@ -1117,55 +1118,148 @@ class MainActivity : AppCompatActivity() {
         
         val startTime = System.currentTimeMillis()
 
+        // 使用 StreamRenderHelper 绑定视图
+        val aiView = layoutInflater.inflate(R.layout.item_ai_message_complex, binding.messagesContainer, false)
+        binding.messagesContainer.addView(aiView)
+        val vh = StreamRenderHelper.bindViews(aiView)
+        StreamRenderHelper.initThinkingState(vh)
+
+        // 按钮事件绑定
+        vh.retryButton?.setOnClickListener {
+             val cc = activeConversation
+            if (cc != null && cc.messages.isNotEmpty()) {
+                val lastUserMsg = cc.messages.findLast { it.isUser }
+                if (lastUserMsg != null) {
+                    sendMessage(lastUserMsg.content, resendUser = false)
+                }
+            }
+        }
+        
+        vh.copyButton?.setOnClickListener {
+             val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("AI Reply", vh.messageContent.text)
+            cm.setPrimaryClip(clip)
+            Toast.makeText(this@MainActivity, "已复制内容", Toast.LENGTH_SHORT).show()
+        }
+
+        smoothScrollToBottom()
+
+        // 临时变量用于构建完整内容以方便保存
+        val reasoningSb = StringBuilder()
+        val contentSb = StringBuilder()
+        var floatingStreamStarted = false
+
+        if (FloatingChatService.isRunning()) {
+            FloatingChatService.getInstance()?.beginExternalStreamAiReply()
+            floatingStreamStarted = true
+        }
+
         isRequestInFlight = true
         lifecycleScope.launch {
             try {
-                // 【修复】构建完整的对话历史，让AI能看到上下文
+                // 构建对话历史
                 val chatHistory = buildChatHistory(c)
 
-                var reply: String? = null
+                var streamOk = false
                 var lastError: Throwable? = null
                 val maxAttempts = 2
-                for (attempt in 1..maxAttempts) {
-                    val result =
-                        runCatching {
-                            withContext(Dispatchers.IO) {
-                                AutoGlmClient.sendChat(
-                                    apiKey = apiKey,
-                                    messages = chatHistory
-                                )
-                            }
-                        }
-                    reply = result.getOrNull()
-                    if (!reply.isNullOrBlank()) break
-                    lastError = result.exceptionOrNull()
-                    if (attempt < maxAttempts) delay(250L * attempt)
-                }
-                        
-                val timeCost = System.currentTimeMillis() - startTime
 
-                val finalReply =
-                    if (!reply.isNullOrBlank()) {
-                        reply!!
-                    } else {
-                        val hint = lastError?.message?.take(60)?.trim().orEmpty()
-                        if (hint.isNotBlank()) "（请求失败：$hint）" else "（请求失败，请稍后点击重试）"
+                for (attempt in 1..maxAttempts) {
+                    if (attempt > 1) {
+                         // 重试前清理界面
+                        reasoningSb.clear()
+                        contentSb.clear()
+                        runOnUiThread {
+                             StreamRenderHelper.initThinkingState(vh)
+                        }
+                        if (FloatingChatService.isRunning()) {
+                             FloatingChatService.getInstance()?.resetExternalStreamAiReply()
+                        }
                     }
 
+                    val result = AutoGlmClient.sendChatStreamResult(
+                        apiKey = apiKey,
+                        messages = chatHistory,
+                        onReasoningDelta = { delta ->
+                            if (delta.isNotBlank()) {
+                                reasoningSb.append(delta)
+                                runOnUiThread {
+                                    StreamRenderHelper.animateAppend(vh.thinkingText, delta, lifecycleScope) {
+                                        smoothScrollToBottom()
+                                    }
+                                }
+                                // 同步到悬浮窗
+                                if (FloatingChatService.isRunning()) {
+                                    FloatingChatService.getInstance()?.appendExternalReasoningDelta(delta)
+                                }
+                            }
+                        },
+                        onContentDelta = { delta ->
+                            if (delta.isNotBlank()) {
+                                // 首次收到正文时切换状态
+                                if (contentSb.isEmpty() && reasoningSb.isNotEmpty()) {
+                                    runOnUiThread {
+                                        StreamRenderHelper.transitionToAnswer(vh)
+                                    }
+                                }
+
+                                contentSb.append(delta)
+                                runOnUiThread {
+                                    StreamRenderHelper.animateAppend(vh.messageContent, delta, lifecycleScope) {
+                                        smoothScrollToBottom()
+                                    }
+                                }
+                                // 同步到悬浮窗
+                                if (FloatingChatService.isRunning()) {
+                                    FloatingChatService.getInstance()?.appendExternalContentDelta(delta)
+                                }
+                            }
+                        }
+                    )
+
+                    if (result.isSuccess) {
+                        streamOk = true
+                        break
+                    }
+                    lastError = result.exceptionOrNull()
+                    if (attempt < maxAttempts) delay(500L * attempt)
+                }
+
+                // 处理结果
+                val timeCost = (System.currentTimeMillis() - startTime) / 1000
+                
+                val finalContent = if (streamOk) {
+                    contentSb.toString()
+                } else {
+                    val err = lastError?.message ?: "Unknown error"
+                    "请求失败: $err"
+                }
+
+                // 显示完成状态
+                runOnUiThread {
+                    StreamRenderHelper.markCompleted(vh, timeCost)
+                    if (!streamOk) {
+                         // 如果失败，直接显示错误信息
+                         vh.messageContent.text = finalContent
+                    }
+                }
+                
+                if (FloatingChatService.isRunning()) {
+                     FloatingChatService.getInstance()?.finishExternalStreamAiReply(timeCost.toInt(), finalContent)
+                }
+
+                // 保存到历史
+                val persistContent = if (reasoningSb.isNotEmpty()) {
+                    "<think>${reasoningSb}</think>\n${finalContent}"
+                } else {
+                    finalContent
+                }
+
                 val cc = requireActiveConversation()
-                cc.messages.add(UiMessage(author = "Aries", content = finalReply, isUser = false))
+                cc.messages.add(UiMessage(author = "Aries", content = persistContent, isUser = false))
                 cc.updatedAt = System.currentTimeMillis()
                 persistConversations()
 
-                removeThinking()
-                
-                // 【优化】使用复杂布局显示 AI 回复（支持思考过程和流式动画）
-                appendComplexAiMessage("Aries", finalReply, animate = true, timeCostMs = timeCost)
-                
-                // 同步 AI 回复到悬浮窗（如果运行中）
-                if (FloatingChatService.isRunning()) {
-                    FloatingChatService.getInstance()?.addMessage("Aries: $finalReply", isUser = false)
-                }
             } finally {
                 isRequestInFlight = false
             }
