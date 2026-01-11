@@ -1056,13 +1056,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderConversation(conversation: Conversation) {
         binding.messagesContainer.removeAllViews()
+        var lastUserContent: String? = null
         for (m in conversation.messages) {
             // 历史消息全部使用新的复杂气泡（如果是AI），确保视觉风格统一
             if (!m.isUser) {
                 // 无论是包含 <think> 还是普通消息，都使用 appendComplexAiMessage
                 // 使用 animate = false 立即显示
-                appendComplexAiMessage(m.author, m.content, animate = false, timeCostMs = 0)
+                appendComplexAiMessage(
+                    m.author,
+                    m.content,
+                    animate = false,
+                    timeCostMs = 0,
+                    retryUserText = lastUserContent
+                )
             } else {
+                lastUserContent = m.content
                 appendComplexUserMessage(m.author, m.content, animate = false)
             }
         }
@@ -1126,14 +1134,9 @@ class MainActivity : AppCompatActivity() {
         StreamRenderHelper.initThinkingState(vh)
 
         // 按钮事件绑定
+        val retryPrompt = text
         vh.retryButton?.setOnClickListener {
-             val cc = activeConversation
-            if (cc != null && cc.messages.isNotEmpty()) {
-                val lastUserMsg = cc.messages.findLast { it.isUser }
-                if (lastUserMsg != null) {
-                    sendMessage(lastUserMsg.content, resendUser = false)
-                }
-            }
+            sendMessage(retryPrompt, resendUser = false)
         }
         
         vh.copyButton?.setOnClickListener {
@@ -1159,8 +1162,21 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 // 构建对话历史
-                val chatHistory = buildChatHistory(c)
-
+                val chatHistory = buildChatHistory(c).toMutableList()
+                if (!resendUser) {
+                    val targetIndex = chatHistory.indexOfLast { it.role == "user" && it.content == text }
+                    if (targetIndex >= 0) {
+                        while (chatHistory.size > targetIndex + 1) {
+                            chatHistory.removeAt(chatHistory.lastIndex)
+                        }
+                    } else {
+                        val last = chatHistory.lastOrNull()
+                        if (last == null || last.role != "user" || last.content != text) {
+                            chatHistory.add(ChatRequestMessage(role = "user", content = text))
+                        }
+                    }
+                }
+                
                 var streamOk = false
                 var lastError: Throwable? = null
                 val maxAttempts = 2
@@ -1339,7 +1355,8 @@ class MainActivity : AppCompatActivity() {
         author: String,
         fullContent: String,
         animate: Boolean,
-        timeCostMs: Long
+        timeCostMs: Long,
+        retryUserText: String? = null
     ) {
         // 1. Inflate 复杂布局
         val view = layoutInflater.inflate(R.layout.item_ai_message_complex, binding.messagesContainer, false)
@@ -1406,12 +1423,11 @@ class MainActivity : AppCompatActivity() {
 
             val btnRetry = view.findViewById<View>(R.id.btn_retry)
             btnRetry.setOnClickListener {
-                val c = activeConversation
-                if (c != null && c.messages.isNotEmpty()) {
-                    val lastUserMsg = c.messages.findLast { it.isUser }
-                    if (lastUserMsg != null) {
-                        sendMessage(lastUserMsg.content, resendUser = false)
-                    }
+                val retryText = retryUserText ?: activeConversation?.messages?.findLast { it.isUser }?.content
+                if (!retryText.isNullOrBlank()) {
+                    sendMessage(retryText, resendUser = false)
+                } else {
+                    Toast.makeText(this@MainActivity, "未找到可重试的用户问题", Toast.LENGTH_SHORT).show()
                 }
             }
             return
@@ -1480,12 +1496,11 @@ class MainActivity : AppCompatActivity() {
         val btnRetry = view.findViewById<View>(R.id.btn_retry)
         btnRetry.setOnClickListener {
             // 重试逻辑：获取上一条用户消息，重新发送
-            val c = activeConversation
-            if (c != null && c.messages.isNotEmpty()) {
-                val lastUserMsg = c.messages.findLast { it.isUser }
-                if (lastUserMsg != null) {
-                    sendMessage(lastUserMsg.content, resendUser = false)
-                }
+            val retryText = retryUserText ?: activeConversation?.messages?.findLast { it.isUser }?.content
+            if (!retryText.isNullOrBlank()) {
+                sendMessage(retryText, resendUser = false)
+            } else {
+                Toast.makeText(this@MainActivity, "未找到可重试的用户问题", Toast.LENGTH_SHORT).show()
             }
         }
         

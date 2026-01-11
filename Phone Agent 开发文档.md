@@ -1,6 +1,6 @@
 # Phone Agent 开发文档
 
-> 最后更新：2026-01-09
+> 最后更新：2026-01-11
 
 ## 0. 阅读指南（给 AI / 新同学）
 
@@ -10,7 +10,7 @@
 
 ## 目录
 
-- [1. 最新状态（2026-01-09）](#1-最新状态2026-01-09)
+- [1. 最新状态（2026-01-11）](#1-最新状态2026-01-11)
 - [自动化升级计划（按 Operit 方法论全面对齐｜仅无障碍）](./自动化升级计划.md)
 - [2. 关键代码入口与数据流索引](#2-关键代码入口与数据流索引)
 - [3. 关键决策（待确认）](#3-关键决策待确认)
@@ -22,7 +22,52 @@
 - [9. 历史任务进度（旧）](#9-历史任务进度旧)
 - [10. 大文件/LFS 与协作提醒](#10-大文件lfs-与协作提醒)
 
-## 1. 最新状态（2026-01-09）
+## 1. 最新状态（2026-01-11）
+
+### Aries 输出协议 + Markdown 渲染统一（2026-01-11）
+
+- **Aries 输出格式协议（已对齐）**：
+  - 统一要求模型输出：
+    - `【思考开始】...【思考结束】`
+    - `【回答开始】...【回答结束】`
+  - 目标：让 UI 解析器能稳定区分思考与正式回答，避免标记泄露到消息正文。
+
+- **流式解析器吞标记（已对齐）**：
+  - `DeepSeekStreamParser` 识别 `【回答开始】/【回答结束】` 等控制标记，以 `CONTROL` chunk 驱动 UI 阶段切换，UI 不直接显示标记文本。
+  - 支持标记被拆分到多段 delta 的情况（buffer + potential tag 检测避免误输出）。
+
+- **Markdown 渲染统一为 Markwon（已实现）**：
+  - 历史消息与流式结束最终态统一使用 `MarkdownRenderer`（Markwon）渲染，改善代码块/表格显示一致性。
+  - 说明：流式增量阶段仍为轻量渲染策略（增量更新），在流式结束时会对最终完整文本做一次 Markwon 渲染。
+
+- **历史消息渲染修复（已实现）**：
+  - `MainActivity.appendComplexAiMessage(animate=false)`：历史消息加载时对思考/回答均调用 `StreamRenderHelper.applyMarkdownToHistory` 进行 Markwon 渲染。
+  - 历史 AI 气泡底部 `action_area`（复制/重试）确保可见且可用。
+
+- **悬浮窗历史消息渲染增强（已实现）**：
+  - `FloatingChatService.updateMessagesUI()`：AI 历史消息使用 `item_ai_message_complex`，并解析 `<think>...</think>` 拆分思考/正文后用 Markwon 渲染。
+  - 用户消息与“思考中...”占位仍采用简单 `TextView`。
+
+- **流式结束丢字/尾巴标记泄露修复（已实现）**：
+  - `StreamRenderHelper.markCompleted()`：结束时 `flush()` 解析器 buffer，把残留内容合并进 animator 文本，避免结尾丢字。
+  - 对 flush 的尾巴做简单清理，降低拆分标记片段（如 `【回答...` / `<think>`）泄露到 UI/持久化的风险。
+
+- **思考区为空时隐藏（已实现）**：
+  - 流式结束与历史加载均确保：无思考内容时隐藏思考区，避免“展开为空”的体验。
+
+- **主界面消息气泡“重试/重新生成”修复（已实现）**：
+  - 目标体验对齐 DeepSeek regenerate：点击某条 AI 气泡的「重试」会重发**对应的用户问题**，并重新发起一条新的流式请求。
+  - 历史消息：在渲染时为每条 AI 气泡绑定其上方最近一条用户消息作为重试 prompt，避免误用“会话最后一条 user”。
+  - 请求上下文：当 `resendUser=false`（重试）时，将请求 `chatHistory` 截断到目标 user message（移除其后的 assistant/error），确保上下文末尾为 user，降低空流/失败提示被当上下文导致的异常概率。
+  - 兜底：若无法定位可重试的用户问题，提示 `未找到可重试的用户问题`。
+  - 涉及文件：`MainActivity.kt`
+
+- **涉及文件**：
+  - `app/src/main/java/com/ai/phoneagent/MainActivity.kt`
+  - `app/src/main/java/com/ai/phoneagent/FloatingChatService.kt`
+  - `app/src/main/java/com/ai/phoneagent/helper/StreamRenderHelper.kt`
+  - `app/src/main/java/com/ai/phoneagent/helper/DeepSeekStreamParser.kt`
+  - `app/src/main/java/com/ai/phoneagent/helper/MarkdownRenderer.kt`
 
 ### 输入框偶现失焦修复 + 自动化语音输入增强（2026-01-09）
 
@@ -385,6 +430,36 @@
 - **涉及文件**：`MainActivity.kt`
 
 ## 7. 更新记录（Changelog）
+
+### 更新记录 · 2026-01-11
+
+- **对话输出协议：Aries 标记格式对齐**
+  - 主对话系统提示更新：要求模型严格输出 `【思考开始/结束】` 与 `【回答开始/结束】`。
+  - 涉及文件：`MainActivity.kt`
+
+- **流式解析：吞掉回答开始/结束标记，避免 UI 泄露**
+  - `DeepSeekStreamParser` 增强：识别回答开始/结束标记并以控制信号驱动 UI 阶段切换。
+  - 涉及文件：`helper/DeepSeekStreamParser.kt`
+
+- **Markdown 渲染：历史/最终态统一为 Markwon**
+  - `StreamRenderHelper.applyMarkdownToHistory()` 改为使用 `MarkdownRenderer`（Markwon）渲染。
+  - 流式结束时对最终完整文本做一次 Markwon 最终渲染，提升代码块/表格一致性。
+  - 涉及文件：`helper/StreamRenderHelper.kt`、`helper/MarkdownRenderer.kt`
+
+- **历史消息：主界面与悬浮窗渲染修复**
+  - 主界面历史消息：思考/回答使用 Markwon 渲染；`action_area`（复制/重试）确保可见可用。
+  - 悬浮窗历史消息：AI 气泡改用复杂布局并支持 `<think>` 拆分渲染；复制按钮只复制正文。
+  - 涉及文件：`MainActivity.kt`、`FloatingChatService.kt`
+
+- **主界面重试：对齐 DeepSeek regenerate（重发对应用户问题）**
+  - 为每条 AI 气泡绑定对应的用户 prompt（含历史消息），重试不再误用“最后一条 user”。
+  - `resendUser=false` 时将 `chatHistory` 截断到目标 user message，重新发起新的流式请求，降低 `Empty stream response` 概率。
+  - 兜底提示：无法定位 prompt 时 Toast 提示。
+  - 涉及文件：`MainActivity.kt`
+
+- **结束态稳定性：flush 解析器残留 + 清理尾巴标记片段**
+  - 结束时合并解析器 buffer 的残留内容，减少丢字；对尾巴残留标记做清理降低泄露风险。
+  - 涉及文件：`helper/StreamRenderHelper.kt`
 
 ### 更新记录 · 2026-01-09
 
