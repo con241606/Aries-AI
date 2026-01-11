@@ -875,14 +875,17 @@ class FloatingChatService : Service() {
 
         view.animate()
             .alpha(0f)
-            .scaleX(0.2f)
-            .scaleY(0.2f)
+            .scaleX(0.1f) // 缩小到更小，过渡更自然
+            .scaleY(0.1f)
             .setStartDelay(0)
-            .setDuration(180)
+            .setDuration(220) // 稍微拉长一点时间，让消失更柔和
             .setInterpolator(exitInterpolator)
             .withEndAction {
-                hideFloatingWindow()
-                stopSelf()
+                // 关键修复：先移除再结束服务，确保 view 已经彻底消失
+                mainHandler.post {
+                    hideFloatingWindow()
+                    stopSelf()
+                }
             }
             .start()
     }
@@ -1062,6 +1065,11 @@ class FloatingChatService : Service() {
              container.addView(aiView)
              
              val vh = StreamRenderHelper.bindViews(aiView)
+             
+             // 针对小窗优化：缩小文字显示，增加单行容量
+             vh.messageContent.textSize = 13.5f
+             if (vh.thinkingText != null) vh.thinkingText.textSize = 12.5f
+             
              StreamRenderHelper.initThinkingState(vh)
              currentStreamViewHolder = vh
              
@@ -1199,9 +1207,9 @@ class FloatingChatService : Service() {
             if (isThinking) {
                 val textView = TextView(this).apply {
                     text = msg
-                    textSize = 14f
+                    textSize = 12f
                     setTextColor(0xFF999999.toInt())
-                    setPadding(16, 8, 16, 8)
+                    setPadding(16, 6, 16, 6)
                     setTypeface(null, android.graphics.Typeface.ITALIC)
                 }
                 container.addView(textView)
@@ -1216,9 +1224,9 @@ class FloatingChatService : Service() {
 
                 val textView = TextView(this).apply {
                     text = content
-                    textSize = 14f
+                    textSize = 13.5f
                     setTextColor(0xFF333333.toInt())
-                    setPadding(16, 8, 16, 8)
+                    setPadding(16, 6, 16, 6)
                 }
                 container.addView(textView)
                 continue
@@ -1235,7 +1243,12 @@ class FloatingChatService : Service() {
             container.addView(aiView)
 
             val vh = StreamRenderHelper.bindViews(aiView)
-            vh.authorName.text = "Aries"
+            
+            // 针对小窗优化：缩小文字显示，增加单行容量
+            vh.messageContent.textSize = 13.5f
+            vh.thinkingText?.textSize = 12.5f
+            
+            vh.authorName.text = "Aries AI"
             vh.authorName.visibility = View.VISIBLE
 
             val thinkRegex = "<think>([\\s\\S]*?)</think>([\\s\\S]*)".toRegex()
@@ -1267,7 +1280,15 @@ class FloatingChatService : Service() {
 
             StreamRenderHelper.applyMarkdownToHistory(vh.messageContent, realContent)
             vh.actionArea.visibility = View.VISIBLE
-            vh.retryButton?.visibility = View.GONE
+            vh.retryButton?.visibility = View.VISIBLE // 修复：小窗模式下显示重试按钮
+            vh.retryButton?.setOnClickListener {
+                // 小窗重试逻辑：发送最后一条用户消息
+                val lastUserMsg = messages.lastOrNull { it.startsWith("我:") || it.startsWith("我: ") }
+                if (lastUserMsg != null) {
+                    val text = lastUserMsg.removePrefix("我: ").removePrefix("我:").trim()
+                    requestAIResponse(text)
+                }
+            }
             vh.copyButton?.setOnClickListener {
                 val cm =
                     getSystemService(android.content.Context.CLIPBOARD_SERVICE) as
@@ -1389,9 +1410,21 @@ class FloatingChatService : Service() {
     }
     
     private fun restoreWindowState() {
-        windowX = prefs.getInt("window_x", 100)
-        windowY = prefs.getInt("window_y", 200)
-        windowWidth = prefs.getInt("window_width", 320)
-        windowHeight = prefs.getInt("window_height", 400)
+        val displayMetrics = resources.displayMetrics
+        val screenWidthDp = (displayMetrics.widthPixels / displayMetrics.density).toInt()
+        val screenHeightDp = (displayMetrics.heightPixels / displayMetrics.density).toInt()
+        
+        // 机型自适配算法：
+        // 1. 宽度取屏幕宽度的 80%，但不超过 360dp，且不小于 280dp
+        // 2. 高度取屏幕高度的 50%，但不超过 480dp，且不小于 340dp
+        val autoWidth = (screenWidthDp * 0.8).toInt().coerceIn(280, 360)
+        val autoHeight = (screenHeightDp * 0.52).toInt().coerceIn(340, 480)
+
+        windowWidth = prefs.getInt("window_width", autoWidth)
+        windowHeight = prefs.getInt("window_height", autoHeight)
+        
+        // 检查之前保存的坐标是否超出当前屏幕（万一分辨率变了）
+        windowX = prefs.getInt("window_x", 100).coerceIn(0, maxOf(0, displayMetrics.widthPixels - (windowWidth * displayMetrics.density).toInt()))
+        windowY = prefs.getInt("window_y", 200).coerceIn(0, maxOf(0, displayMetrics.heightPixels - (windowHeight * displayMetrics.density).toInt()))
     }
 }

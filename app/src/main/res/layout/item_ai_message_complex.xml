@@ -85,10 +85,12 @@
         android:id="@+id/ai_author_name"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Aries"
-        android:textSize="15sp"
+        android:text="Aries AI"
+        android:textSize="18sp"
         android:textStyle="bold"
-        android:textColor="#80505050"
+        android:textColor="#2563EB"
+        android:letterSpacing="0.03"
+        android:layout_marginBottom="6dp"
         android:visibility="gone"/>
 
     <!-- 正文内容 -->

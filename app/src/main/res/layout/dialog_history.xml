@@ -1,7 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.recyclerview.widget.RecyclerView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/rvHistory"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="420dp"
-    android:padding="12dp"
-    android:clipToPadding="false" />
+    android:layout_height="match_parent">
+
+    <!-- 完全去除了背景遮罩 View -->
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/dialogCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginHorizontal="20dp"
+        app:cardCornerRadius="32dp"
+        app:cardElevation="16dp"
+        app:strokeWidth="0dp"
+        app:cardBackgroundColor="@color/white">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerVertical="true"
+                    android:text="历史对话"
+                    android:textColor="#1A1A1A"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
+
+                <ImageView
+                    android:id="@+id/btnClose"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_alignParentEnd="true"
+                    android:background="@drawable/bg_circle_light"
+                    android:padding="8dp"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    app:tint="#666666" />
+            </RelativeLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvHistory"
+                android:layout_width="match_parent"
+                android:layout_height="420dp"
+                android:clipToPadding="false"
+                android:overScrollMode="never" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+</FrameLayout>

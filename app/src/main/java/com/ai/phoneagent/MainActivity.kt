@@ -23,7 +23,12 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnticipateInterpolator
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.AnticipateOvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.ImageButton
@@ -59,9 +64,12 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import android.net.Uri
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.AccelerateInterpolator
 import android.content.Intent
+import android.app.Dialog
+import android.view.Window
+import android.view.WindowManager
+import android.graphics.drawable.ColorDrawable
+import android.view.ViewAnimationUtils
 
 class MainActivity : AppCompatActivity() {
 
@@ -236,10 +244,45 @@ class MainActivity : AppCompatActivity() {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
+        // 统一优化工具栏按钮的点击视觉：去掉默认灰色背景阴影，改为缩放缩放+透明度脉冲
+        binding.topAppBar.post {
+            for (i in 0 until binding.topAppBar.childCount) {
+                val child = binding.topAppBar.getChildAt(i)
+                if (child is ActionMenuView) {
+                    for (j in 0 until child.childCount) {
+                        val menuChild = child.getChildAt(j)
+                        menuChild.background = null // 去除默认背景
+                        menuChild.isClickable = true
+                    }
+                } else if (child is ImageButton) {
+                    child.background = null // 去除默认背景
+                }
+            }
+        }
+
         binding.topAppBar.setOnMenuItemClickListener { item ->
             vibrateLight()
+            // 通用图标动画
+            findViewById<View>(item.itemId)?.let { view ->
+                view.animate()
+                    .scaleX(0.8f)
+                    .scaleY(0.8f)
+                    .alpha(0.6f)
+                    .setDuration(120)
+                    .withEndAction {
+                        view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(150).start()
+                    }
+                    .start()
+            }
+
             when (item.itemId) {
                 R.id.action_new_chat -> {
+                    // 如果当前已经是空的新对话，则提示并跳过
+                    if (activeConversation?.messages?.isEmpty() == true) {
+                        Toast.makeText(this, "您已处于新对话中！", Toast.LENGTH_SHORT).show()
+                        return@setOnMenuItemClickListener true
+                    }
+
                     startNewChat(clearUi = true)
                     true
                 }
@@ -333,7 +376,7 @@ class MainActivity : AppCompatActivity() {
                             .removePrefix("我: ")
                             .removePrefix("AI: ")
                             .removePrefix("Aries: ")
-                    val author = if (isUser) "我" else "Aries"
+                    val author = if (isUser) "我" else "Aries AI"
                     
                     // 检查是否已存在该消息（避免重复）
                     val exists = c.messages.any { it.content == content && it.isUser == isUser }
@@ -436,7 +479,7 @@ class MainActivity : AppCompatActivity() {
             // 检查是否已存在该消息
             val exists = c.messages.any { it.content == content && it.isUser == isUser }
             if (!exists) {
-                val author = if (isUser) "我" else "Aries"
+                val author = if (isUser) "我" else "Aries AI"
                 c.messages.add(UiMessage(author = author, content = content, isUser = isUser))
             }
         }
@@ -1031,12 +1074,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startNewChat(clearUi: Boolean) {
+        // 防止启动多个重复的空会话
+        if (activeConversation != null && activeConversation!!.messages.isEmpty()) {
+            Toast.makeText(this, "您已处于新对话中！", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val now = System.currentTimeMillis()
         val c = Conversation(id = now, title = "", messages = mutableListOf(), updatedAt = now)
         conversations.add(0, c)
         activeConversation = c
+        
         if (clearUi) {
-            binding.messagesContainer.removeAllViews()
+            // 一气呵成收敛动效：逐步缩小并向上冲刺融入背景
+            binding.messagesContainer.animate()
+                .translationY(-600f) // 向上冲刺
+                .scaleX(0.7f)        // 逐步收缩
+                .scaleY(0.7f)
+                .alpha(0f)           // 渐隐融入
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.5f)) // 加速冲出，不回弹
+                .withEndAction {
+                    binding.messagesContainer.removeAllViews()
+                    
+                    // 状态瞬间重置
+                    binding.messagesContainer.translationY = 0f
+                    binding.messagesContainer.scaleX = 1f
+                    binding.messagesContainer.scaleY = 1f
+                    
+                    // 新对话界面极其柔和地原地淡入
+                    binding.messagesContainer.animate()
+                        .alpha(1.0f)
+                        .setDuration(400)
+                        .setInterpolator(DecelerateInterpolator())
+                        .start()
+                }
+                .start()
         }
         persistConversations()
     }
@@ -1286,7 +1359,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val cc = requireActiveConversation()
-                cc.messages.add(UiMessage(author = "Aries", content = persistContent, isUser = false))
+                cc.messages.add(UiMessage(author = "Aries AI", content = persistContent, isUser = false))
                 cc.updatedAt = System.currentTimeMillis()
                 persistConversations()
 
@@ -1377,7 +1450,7 @@ class MainActivity : AppCompatActivity() {
         val realContent = match?.groupValues?.get(2)?.trim() ?: fullContent
         
         // 设置作者名
-        authorName.text = author
+        authorName.text = if (author == "Aries") "Aries AI" else author
         authorName.visibility = View.VISIBLE
         
         // 设置思考部分交互
@@ -1786,7 +1859,7 @@ class MainActivity : AppCompatActivity() {
         val thinkingLayout = view.findViewById<View>(R.id.thinking_layout)
         val actionArea = view.findViewById<View>(R.id.action_area)
 
-        authorName.text = "Aries"
+        authorName.text = "Aries AI"
         authorName.visibility = View.VISIBLE
         thinkingLayout.visibility = View.GONE
         actionArea.visibility = View.GONE
@@ -2031,58 +2104,102 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val contentView = layoutInflater.inflate(R.layout.dialog_history, null)
-        val rv = contentView.findViewById<RecyclerView>(R.id.rvHistory)
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val containerView = layoutInflater.inflate(R.layout.dialog_history, null)
+        dialog.setContentView(containerView)
+
+        val cardView = containerView.findViewById<View>(R.id.dialogCard)
+
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            window.setDimAmount(0f) // 完全丢弃系统暗色遮罩
+            window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            val params = window.attributes
+            params.windowAnimations = 0
+            window.attributes = params
+        }
+
+        val rv = containerView.findViewById<RecyclerView>(R.id.rvHistory)
         rv.layoutManager = LinearLayoutManager(this)
         val adapter =
-                ConversationAdapter(
-                        items = displayed,
-                        onClick = { conv ->
-                            activeConversation = conv
-                            renderConversation(conv)
-                            persistConversations()
-                        }
-                )
+            ConversationAdapter(
+                items = displayed,
+                onClick = { conv ->
+                    activeConversation = conv
+                    renderConversation(conv)
+                    persistConversations()
+                }
+            )
         rv.adapter = adapter
 
+        fun exitDialog() {
+            vibrateLight()
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { dialog.dismiss() }
+                .start()
+        }
+
+        containerView.findViewById<View>(R.id.btnClose).setOnClickListener { exitDialog() }
+        // 点击卡片外部区域退出
+        containerView.setOnClickListener { exitDialog() }
+        cardView.setOnClickListener { /* 阻止点击穿透到 containerView */ }
+
         val helper =
-                ItemTouchHelper(
-                        object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-                            override fun onMove(
-                                    recyclerView: RecyclerView,
-                                    viewHolder: RecyclerView.ViewHolder,
-                                    target: RecyclerView.ViewHolder
-                            ): Boolean = false
+            ItemTouchHelper(
+                object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+                    override fun onMove(
+                        recyclerView: RecyclerView,
+                        viewHolder: RecyclerView.ViewHolder,
+                        target: RecyclerView.ViewHolder
+                    ): Boolean = false
 
-                            override fun onSwiped(
-                                    viewHolder: RecyclerView.ViewHolder,
-                                    direction: Int
-                            ) {
-                                val pos = viewHolder.bindingAdapterPosition
-                                if (pos == RecyclerView.NO_POSITION) return
-                                val removed = displayed.removeAt(pos)
-                                conversations.removeAll { it.id == removed.id }
+                    override fun onSwiped(
+                        viewHolder: RecyclerView.ViewHolder,
+                        direction: Int
+                    ) {
+                        val pos = viewHolder.bindingAdapterPosition
+                        if (pos == RecyclerView.NO_POSITION) return
+                        val removed = displayed.removeAt(pos)
+                        conversations.removeAll { it.id == removed.id }
 
-                                if (activeConversation?.id == removed.id) {
-                                    activeConversation = null
-                                    startNewChat(clearUi = true)
-                                }
-                                adapter.notifyItemRemoved(pos)
-                                persistConversations()
-                            }
+                        if (activeConversation?.id == removed.id) {
+                            activeConversation = null
+                            startNewChat(clearUi = true)
                         }
-                )
+                        adapter.notifyItemRemoved(pos)
+                        persistConversations()
+                    }
+                }
+            )
         helper.attachToRecyclerView(rv)
 
-        val dialog =
-                AlertDialog.Builder(this)
-                        .setTitle("历史对话")
-                        .setView(contentView)
-                        .setNegativeButton("关闭", null)
-                        .create()
+        adapter.onItemSelected = { exitDialog() }
 
-        adapter.onItemSelected = { dialog.dismiss() }
         dialog.show()
+
+        // 入场动画：纯正扫入，不再受遮罩影响
+        cardView.post {
+            cardView.translationY = -cardView.height.toFloat() * 1.5f
+            cardView.alpha = 0f
+
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(600)
+                .setInterpolator(OvershootInterpolator(1.1f))
+                .start()
+        }
     }
 
     private class ConversationAdapter(
@@ -2106,9 +2223,8 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val c = items[position]
-            holder.title.text = if (c.title.isBlank()) "（未命名对话）" else c.title
-            val last = c.messages.lastOrNull()?.content.orEmpty()
-            holder.subtitle.text = last.take(28)
+            holder.title.text = if (c.title.isBlank()) "新对话" else c.title
+            holder.subtitle.visibility = View.GONE
             holder.itemView.setOnClickListener {
                 onClick(c)
                 onItemSelected?.invoke()

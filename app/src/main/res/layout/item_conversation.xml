@@ -3,38 +3,64 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="10dp"
-    app:cardCornerRadius="14dp"
+    android:layout_marginBottom="12dp"
+    android:layout_marginHorizontal="2dp"
+    app:cardCornerRadius="18dp"
     app:cardElevation="0dp"
     app:strokeWidth="1dp"
-    app:strokeColor="@color/blue_glass_stroke"
-    app:cardBackgroundColor="@color/blue_glass_surface">
+    app:strokeColor="#EEF2F6"
+    app:cardBackgroundColor="#F8FAFC">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="12dp">
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/blue_glass_text"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end" />
+        <ImageView
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@android:drawable/ic_menu_recent_history"
+            app:tint="#6366F1"
+            android:padding="10dp"
+            android:background="@drawable/bg_circle_light" />
 
-        <TextView
-            android:id="@+id/tvSubtitle"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textColor="@color/blue_glass_text"
-            android:textSize="13sp"
-            android:maxLines="2"
-            android:ellipsize="end" />
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="16dp">
+
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#334155"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tvSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#64748B"
+                android:textSize="14sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@android:drawable/ic_media_play"
+            android:alpha="0.3"
+            app:tint="#475569" />
 
     </LinearLayout>
 
