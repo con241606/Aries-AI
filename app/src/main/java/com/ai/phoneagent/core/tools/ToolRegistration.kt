@@ -155,7 +155,11 @@ object ToolRegistration {
         handler.registerTool(
             name = "get_ui_tree",
             dangerCheck = { false },
-            descriptionGenerator = { "获取当前UI层次结构" },
+            descriptionGenerator = { tool ->
+                val format = tool.parameters.find { it.name == "format" }?.value ?: "xml"
+                val detail = tool.parameters.find { it.name == "detail" }?.value ?: "summary"
+                "获取当前UI层次结构(format=$format, detail=$detail)"
+            },
             executor = { tool ->
                 val service = PhoneAgentAccessibilityService.instance
                 if (service == null) {
@@ -165,12 +169,44 @@ object ToolRegistration {
                         error = "无障碍服务未启用"
                     )
                 } else {
-                    val maxNodes = tool.parameters.find { it.name == "max_nodes" }?.value?.toIntOrNull() ?: 200
-                    val uiTree = service.dumpUiTree(maxNodes)
+                    val maxNodes = tool.parameters.find { it.name == "max_nodes" }?.value?.toIntOrNull() ?: 30
+                    val format = tool.parameters.find { it.name == "format" }?.value ?: "xml"
+                    val detail = tool.parameters.find { it.name == "detail" }?.value ?: "minimal"
+                    val uiTree = service.getUiHierarchy(format, detail, maxNodes)
                     ToolResult(
                         toolName = tool.name,
                         success = true,
                         result = StringResultData(uiTree)
+                    )
+                }
+            }
+        )
+
+        // 获取页面信息（包名+Activity+UI树）
+        handler.registerTool(
+            name = "get_page_info",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val format = tool.parameters.find { it.name == "format" }?.value ?: "xml"
+                val detail = tool.parameters.find { it.name == "detail" }?.value ?: "summary"
+                "获取页面信息(format=$format, detail=$detail)"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val format = tool.parameters.find { it.name == "format" }?.value ?: "xml"
+                    val detail = tool.parameters.find { it.name == "detail" }?.value ?: "summary"
+                    val ui = service.getUiHierarchy(format, detail)
+                    ToolResult(
+                        toolName = tool.name,
+                        success = true,
+                        result = StringResultData(ui)
                     )
                 }
             }

@@ -118,8 +118,8 @@ class ActionHandler(
             return "(无障碍服务未启用)"
         }
 
-        val maxNodes = 200
-        val uiTree = service.dumpUiTree(maxNodes)
+        val maxNodes = 30
+        val uiTree = service.getUiHierarchy(format = "xml", detail = "minimal", maxNodes = maxNodes)
         
         // 限制长度
         return if (uiTree.length > maxChars) {

@@ -222,8 +222,12 @@ do(action="Tap", element=[x,y])
     /**
      * 检测用户任务中是否包含需要打开的应用，如果包含则自动启动（智能应用启动）
      * 支持的模式：
-     * - "打开xxx" / "启动xxx" / "进入xxx"
+     * - "打开xxx" / "启动xxx" / "进入xxx" / "帮我打开xxx"
+     * - "用xxx" / "去xxx" / "切换到xxx"
+     * - "open xxx" / "launch xxx" / "start xxx"
      * - 直接在消息中提及应用名称
+     * 
+     * 此功能会在调用模型前直接执行，加快响应速度，节省API调用
      */
     private suspend fun trySmartAppLaunch(
             task: String,
@@ -231,9 +235,12 @@ do(action="Tap", element=[x,y])
             onLog: (String) -> Unit,
     ): Boolean {
         // 检测"打开/启动/进入"等动作词后面的应用名
+        // 支持中英文、模糊匹配、多种动作词
         val launchPatterns = listOf(
-            Regex("""(?:打开|启动|进入|帮我打开|用|去)\s*([^\s，。,\.]+?)(?:\s|，|。|,|\.|$)"""),
-            Regex("""(?:open|launch|start)\s+(\S+)""", RegexOption.IGNORE_CASE),
+            // 中文动作词：打开、启动、进入、帮我打开、用、去、切换到、跳转到
+            Regex("""(?:打开|启动|进入|帮我打开|用|去|切换到|跳转到|回到)\s*([^\s，。,\.！!？?；;]+?)(?:\s|，|。|,|\.|！|!|？|\?|；|;|$)"""),
+            // 英文动作词：open、launch、start、switch to、go to
+            Regex("""(?:open|launch|start|switch\s+to|go\s+to)\s+(\S+)""", RegexOption.IGNORE_CASE),
         )
         
         var appMatch: AppPackageMapping.Match? = null
@@ -270,7 +277,7 @@ do(action="Tap", element=[x,y])
         // 检查当前应用是否已经是目标应用
         val currentApp = service.currentAppPackage()
         if (currentApp == appMatch.packageName) {
-            onLog("[智能启动] ${appMatch.appLabel} 已经在前台，跳过启动")
+            onLog("[⚡快速启动] ${appMatch.appLabel} 已在前台，跳过启动（无需连接模型）")
             return true
         }
         
@@ -278,7 +285,7 @@ do(action="Tap", element=[x,y])
         val pm = service.packageManager
         val intent = pm.getLaunchIntentForPackage(appMatch.packageName)
         if (intent == null) {
-            onLog("[智能启动] 未找到 ${appMatch.appLabel}(${appMatch.packageName}) 的启动入口")
+            onLog("[⚡快速启动] 未找到 ${appMatch.appLabel}(${appMatch.packageName}) 的启动入口")
             return false
         }
         
@@ -291,13 +298,13 @@ do(action="Tap", element=[x,y])
         try {
             val beforeTime = service.lastWindowEventTime()
             LaunchProxyActivity.launch(service, intent)
-            onLog("[智能启动] 后台启动 ${appMatch.appLabel}(${appMatch.packageName})")
+            onLog("[⚡快速启动] 后台启动 ${appMatch.appLabel}（无需连接模型，节省时间）")
             // 等待应用启动完成
             service.awaitWindowEvent(beforeTime, timeoutMs = 2200L)
             delay(500) // 额外等待应用界面稳定
             return true
         } catch (e: Exception) {
-            onLog("[智能启动] 启动失败: ${e.message}")
+            onLog("[⚡快速启动] 启动失败: ${e.message}")
             return false
         }
     }
@@ -314,8 +321,13 @@ do(action="Tap", element=[x,y])
         val screenW = metrics.widthPixels
         val screenH = metrics.heightPixels
 
-        // 智能应用启动：如果用户任务中包含应用名，自动在后台启动，无需请求模型
-        trySmartAppLaunch(task, service, onLog)
+        // ⚡ 智能应用启动：检测"打开XXX"等指令，直接后台启动，无需调用模型API
+        // 支持：打开/启动/进入/用/去/切换到 + 应用名（中英文均可）
+        // 效果：节省1-2秒模型调用时间，提升用户体验
+        val smartLaunched = trySmartAppLaunch(task, service, onLog)
+        if (smartLaunched) {
+            onLog("✓ 应用已快速启动，继续后续操作...")
+        }
 
         val history = mutableListOf<ChatRequestMessage>()
         history +=
@@ -331,7 +343,7 @@ do(action="Tap", element=[x,y])
             AutomationOverlay.updateStep(step = step, maxSteps = config.maxSteps)
             
             // 获取UI树并限制大小（带重试机制）
-            val rawUiDump = service.dumpUiTreeWithRetry(maxNodes = 120) // 减少节点数
+            val rawUiDump = service.dumpUiTreeWithRetry(maxNodes = 30) // 减少节点数
             val uiDump = truncateUiTree(rawUiDump, config.maxUiTreeChars)
 
             val currentApp = service.currentAppPackage()

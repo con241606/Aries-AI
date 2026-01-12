@@ -10,11 +10,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ai.phoneagent.ui.UIAutomationProgressOverlay
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -34,6 +37,28 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
 
     @Volatile private var lastEventTimeMs: Long = 0L
     @Volatile private var lastWindowEventTimeMs: Long = 0L
+
+        private enum class UiDetailLevel { MINIMAL, SUMMARY, FULL }
+
+        private data class UiNodeSnapshot(
+            val nodeId: String,
+            val className: String,
+            val packageName: String,
+            val text: String?,
+            val contentDesc: String?,
+            val resourceId: String?,
+            val bounds: String,
+            val clickable: Boolean,
+            val enabled: Boolean,
+            val focused: Boolean,
+            val checkable: Boolean,
+            val checked: Boolean,
+            val selected: Boolean,
+            val scrollable: Boolean,
+            val longClickable: Boolean,
+            val editable: Boolean,
+            val children: List<UiNodeSnapshot>,
+        )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -190,11 +215,240 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun normalizeDetailLevel(detail: String?): UiDetailLevel {
+        return when (detail?.lowercase()) {
+            "minimal" -> UiDetailLevel.MINIMAL
+            "full" -> UiDetailLevel.FULL
+            else -> UiDetailLevel.SUMMARY
+        }
+    }
+
+    private fun sanitizeAttr(value: CharSequence?, maxLength: Int): String? {
+        if (value.isNullOrBlank()) return null
+        val cleaned =
+                value
+                        .toString()
+                        .replace("\n", " ")
+                        .replace("\r", " ")
+                        .trim()
+        if (cleaned.isBlank()) return null
+        return if (cleaned.length > maxLength) cleaned.take(maxLength) else cleaned
+    }
+
+    private fun Rect.toBoundsString(): String = toShortString()
+
+    private fun buildNodeSnapshot(
+            node: AccessibilityNodeInfo,
+            detailLevel: UiDetailLevel,
+            maxNodes: Int,
+            counter: IntArray,
+    ): UiNodeSnapshot? {
+        if (counter[0] >= maxNodes) return null
+        counter[0]++
+
+        val bounds = Rect().also { node.getBoundsInScreen(it) }
+        val maxAttrLen = when (detailLevel) {
+            UiDetailLevel.MINIMAL -> 40
+            UiDetailLevel.SUMMARY -> 80
+            UiDetailLevel.FULL -> 140
+        }
+
+        val className = sanitizeAttr(node.className, maxAttrLen) ?: ""
+        val packageName = sanitizeAttr(node.packageName, maxAttrLen) ?: ""
+        val text = sanitizeAttr(node.text, maxAttrLen)
+        val contentDesc = sanitizeAttr(node.contentDescription, maxAttrLen)
+        val resourceId = sanitizeAttr(node.viewIdResourceName, maxAttrLen)
+        val editable = node.isEditable || className.contains("edittext", ignoreCase = true)
+
+        val children = mutableListOf<UiNodeSnapshot>()
+        val childCount = node.childCount
+        for (i in 0 until childCount) {
+            if (counter[0] >= maxNodes) break
+            node.getChild(i)?.let { child ->
+                buildNodeSnapshot(child, detailLevel, maxNodes, counter)?.let { children.add(it) }
+            }
+        }
+
+        return UiNodeSnapshot(
+                nodeId = bounds.toBoundsString(),
+                className = className,
+                packageName = packageName,
+                text = text,
+                contentDesc = contentDesc,
+                resourceId = resourceId,
+                bounds = bounds.toBoundsString(),
+                clickable = node.isClickable,
+                enabled = node.isEnabled,
+                focused = node.isFocused,
+                checkable = node.isCheckable,
+                checked = node.isChecked,
+                selected = node.isSelected,
+                scrollable = node.isScrollable,
+                longClickable = node.isLongClickable,
+                editable = editable,
+                children = children,
+        )
+    }
+
+    private fun escapeXml(value: String): String {
+        return buildString(value.length) {
+            value.forEach { c ->
+                when (c) {
+                    '&' -> append("&amp;")
+                    '<' -> append("&lt;")
+                    '>' -> append("&gt;")
+                    '"' -> append("&quot;")
+                    '\'' -> append("&apos;")
+                    else -> append(c)
+                }
+            }
+        }
+    }
+
+    private fun appendNodeXml(
+            sb: StringBuilder,
+            node: UiNodeSnapshot,
+            detailLevel: UiDetailLevel,
+            depth: Int,
+    ) {
+        val compact = detailLevel == UiDetailLevel.MINIMAL
+        val indent = if (!compact && detailLevel == UiDetailLevel.FULL) "  ".repeat(depth) else ""
+        if (!compact) {
+            sb.append("\n").append(indent)
+        }
+        sb.append("<node")
+
+        val minimalAllowed = setOf("class", "text", "resource-id", "bounds", "clickable")
+        fun appendAttr(key: String, value: String?) {
+            if (value.isNullOrEmpty()) return
+            if (compact && key !in minimalAllowed) return
+            sb.append(' ').append(key).append("=\"").append(escapeXml(value)).append('"')
+        }
+
+        if (!compact) appendAttr("node_id", node.nodeId)
+        appendAttr("class", node.className)
+        if (!compact) appendAttr("package", node.packageName)
+        appendAttr("text", node.text)
+        appendAttr("content-desc", node.contentDesc)
+        appendAttr("resource-id", node.resourceId)
+        appendAttr("bounds", node.bounds)
+
+        // summary/full detail flags
+        if (detailLevel != UiDetailLevel.MINIMAL) {
+            appendAttr("clickable", node.clickable.toString())
+            appendAttr("focused", node.focused.toString())
+            if (detailLevel == UiDetailLevel.FULL) {
+                appendAttr("enabled", node.enabled.toString())
+                appendAttr("checkable", node.checkable.toString())
+                appendAttr("checked", node.checked.toString())
+                appendAttr("selected", node.selected.toString())
+                appendAttr("scrollable", node.scrollable.toString())
+                appendAttr("long-clickable", node.longClickable.toString())
+                appendAttr("editable", node.editable.toString())
+            }
+        } else {
+            // 在minimal模式下仍保留clickable信息以保障自动化准确度
+            appendAttr("clickable", node.clickable.toString())
+        }
+
+        if (node.children.isEmpty()) {
+            sb.append("/>")
+            return
+        }
+
+        sb.append(">")
+        node.children.forEach { child -> appendNodeXml(sb, child, detailLevel, depth + 1) }
+        if (!compact) {
+            sb.append("\n").append(indent)
+        }
+        sb.append("</node>")
+    }
+
+    private fun nodeToJson(node: UiNodeSnapshot, detailLevel: UiDetailLevel): JSONObject {
+        val obj = JSONObject()
+        obj.put("node_id", node.nodeId)
+        obj.put("class", node.className)
+        obj.put("package", node.packageName)
+        if (!node.text.isNullOrEmpty()) obj.put("text", node.text)
+        if (!node.contentDesc.isNullOrEmpty()) obj.put("content_desc", node.contentDesc)
+        if (!node.resourceId.isNullOrEmpty()) obj.put("resource_id", node.resourceId)
+        obj.put("bounds", node.bounds)
+        if (detailLevel != UiDetailLevel.MINIMAL) {
+            obj.put("clickable", node.clickable)
+            obj.put("focused", node.focused)
+            if (detailLevel == UiDetailLevel.FULL) {
+                obj.put("enabled", node.enabled)
+                obj.put("checkable", node.checkable)
+                obj.put("checked", node.checked)
+                obj.put("selected", node.selected)
+                obj.put("scrollable", node.scrollable)
+                obj.put("long_clickable", node.longClickable)
+                obj.put("editable", node.editable)
+            }
+        }
+
+        val children = JSONArray()
+        node.children.forEach { child -> children.put(nodeToJson(child, detailLevel)) }
+        obj.put("children", children)
+        return obj
+    }
+
+    fun dumpUiTreeXml(maxNodes: Int = 30, detail: String = "minimal"): String {
+        val root = rootInActiveWindow ?: return "(no active window)"
+        val detailLevel = normalizeDetailLevel(detail)
+        val counter = intArrayOf(0)
+        val snapshot = buildNodeSnapshot(root, detailLevel, maxNodes, counter) ?: return "(no active window)"
+
+        val pkg = sanitizeAttr(root.packageName, 120).orEmpty()
+        val activity = sanitizeAttr(root.className, 120)
+
+        val sb = StringBuilder()
+        sb.append("<ui_hierarchy")
+        if (pkg.isNotBlank()) sb.append(" package=\"").append(escapeXml(pkg)).append('\"')
+        if (!activity.isNullOrBlank()) sb.append(" activity=\"").append(escapeXml(activity)).append('\"')
+        sb.append(">")
+        appendNodeXml(sb, snapshot, detailLevel, 0)
+        sb.append("\n</ui_hierarchy>")
+        if (counter[0] >= maxNodes) {
+            sb.append("<!-- truncated, maxNodes=").append(maxNodes).append(" -->")
+        }
+        
+        val result = sb.toString()
+        Log.d("UI_TREE", "XML格式已生成: 根元素=<ui_hierarchy>, package=$pkg, activity=$activity, 节点数=${counter[0]}, 长度=${result.length}")
+        return result
+    }
+
+    fun dumpUiTreeJson(maxNodes: Int = 30, detail: String = "minimal"): String {
+        val root = rootInActiveWindow ?: return "{}"
+        val detailLevel = normalizeDetailLevel(detail)
+        val counter = intArrayOf(0)
+        val snapshot = buildNodeSnapshot(root, detailLevel, maxNodes, counter) ?: return "{}"
+
+        val rootObj = JSONObject()
+        sanitizeAttr(root.packageName, 120)?.let { rootObj.put("package", it) }
+        sanitizeAttr(root.className, 120)?.let { rootObj.put("activity", it) }
+        rootObj.put("tree", nodeToJson(snapshot, detailLevel))
+        if (counter[0] >= maxNodes) {
+            rootObj.put("truncated", true)
+            rootObj.put("max_nodes", maxNodes)
+        }
+        return rootObj.toString()
+    }
+
+    fun getUiHierarchy(format: String = "xml", detail: String = "minimal", maxNodes: Int = 30): String {
+        val result = when (format.lowercase()) {
+            "json" -> dumpUiTreeJson(maxNodes, detail)
+            else -> dumpUiTreeXml(maxNodes, detail)
+        }
+        Log.d("UI_TREE", "格式=$format, 详情=$detail, 节点≤$maxNodes, 长度=${result.length}")
+        return result
+    }
+
     /**
      * 带重试机制的 UI 树获取
      * 参考 Operit 的 getUIHierarchyWithRetry 策略
      */
-    suspend fun dumpUiTreeWithRetry(maxNodes: Int = 200, maxRetries: Int = 3, retryDelayMs: Long = 300): String {
+    suspend fun dumpUiTreeWithRetry(maxNodes: Int = 30, maxRetries: Int = 3, retryDelayMs: Long = 300): String {
         repeat(maxRetries) { attempt ->
             val result = dumpUiTree(maxNodes)
             if (result != "(no active window)" && result.isNotBlank()) {
@@ -207,55 +461,8 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
         return dumpUiTree(maxNodes) // 最后一次尝试
     }
 
-    fun dumpUiTree(maxNodes: Int = 200): String {
-        val root = rootInActiveWindow ?: return "(no active window)"
-        val lines = StringBuilder()
-        lines.appendLine("pkg=${root.packageName}")
-
-        val q = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
-        q.add(root to 0)
-        var count = 0
-        while (q.isNotEmpty() && count < maxNodes) {
-            val (node, depth) = q.removeFirst()
-            count++
-            val indent = "  ".repeat(depth.coerceAtMost(6))
-            val r = Rect()
-            node.getBoundsInScreen(r)
-            val text = node.text?.toString()?.replace("\n", " ")?.trim().orEmpty()
-            val desc = node.contentDescription?.toString()?.replace("\n", " ")?.trim().orEmpty()
-            val vid = node.viewIdResourceName?.trim().orEmpty()
-            val cls = node.className?.toString()?.trim().orEmpty()
-            val flags =
-                    buildString {
-                                if (node.isClickable) append("C")
-                                if (node.isEditable) append("E")
-                                if (node.isFocusable) append("F")
-                                if (node.isFocused) append("* ")
-                            }
-                            .trim()
-
-            val summary =
-                    listOf(
-                                    if (text.isNotBlank()) "text=\"${text.take(40)}\"" else "",
-                                    if (desc.isNotBlank()) "desc=\"${desc.take(40)}\"" else "",
-                                    if (vid.isNotBlank()) "id=${vid.take(60)}" else "",
-                                    if (cls.isNotBlank()) "cls=${cls.take(40)}" else "",
-                                    "b=${r.left},${r.top},${r.right},${r.bottom}",
-                                    if (flags.isNotBlank()) "flags=$flags" else ""
-                            )
-                            .filter { it.isNotBlank() }
-                            .joinToString(" ")
-
-            lines.append(indent).append("- ").appendLine(summary)
-
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { child -> q.add(child to (depth + 1)) }
-            }
-        }
-        if (count >= maxNodes) {
-            lines.appendLine("(truncated, maxNodes=$maxNodes)")
-        }
-        return lines.toString().trim()
+    fun dumpUiTree(maxNodes: Int = 30): String {
+        return dumpUiTreeXml(maxNodes = maxNodes, detail = "summary")
     }
 
     fun setTextOnFocused(text: String): Boolean {
