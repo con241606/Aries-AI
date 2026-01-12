@@ -1560,7 +1560,7 @@ class MainActivity : AppCompatActivity() {
         val btnCopy = view.findViewById<View>(R.id.btn_copy)
         btnCopy.setOnClickListener {
             val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            // 复制时是否包含思考过程？DeepSeek 通常只复制正文
+            // 复制时是否包含思考过程？Aries AI 默认只复制正文
             val clip = android.content.ClipData.newPlainText("AI Reply", realContent)
             cm.setPrimaryClip(clip)
             Toast.makeText(this@MainActivity, "已复制内容", Toast.LENGTH_SHORT).show()
@@ -1682,7 +1682,7 @@ class MainActivity : AppCompatActivity() {
     
     /**
      * 【优化】使用StringBuilder批量更新方式显示消息
-     * 参考Operit的groupBy算法，每次收到一点就拼接，然后刷新整个文本
+    * 参考groupBy 算法，每次收到一点就拼接，然后刷新整个文本
      */
     private fun appendMessageBatch(
             author: String,

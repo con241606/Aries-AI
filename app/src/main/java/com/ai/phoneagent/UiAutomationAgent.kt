@@ -547,7 +547,7 @@ do(action="Tap", element=[x,y])
                     }
 
             // 【历史瘦身】执行完动作后，从历史中移除图片数据，只保留文本
-            // 参考 Operit 的 removeImagesFromLastUserMessage 策略
+            // 参考 Aries AI 的 removeImagesFromLastUserMessage 策略
             if (observationUserIndex in history.indices) {
                 val obs = history[observationUserIndex]
                 if (obs.content is List<*>) {

@@ -1,8 +1,8 @@
 package com.ai.phoneagent.helper
 
 /**
- * DeepSeek 风格流式解析器
- * 
+ * 流式解析器
+ *
  * 负责解析 AI 输出流，正确分离思考过程和回答内容。
  * 支持多种思考标记格式：
  * - <think>...</think>
@@ -11,7 +11,7 @@ package com.ai.phoneagent.helper
  * - 【思考开始】...【思考结束】
  * - reasoning_content 字段
  */
-class DeepSeekStreamParser {
+class AriesStreamParser {
 
     enum class ChunkType {
         THINKING,   // 思考内容

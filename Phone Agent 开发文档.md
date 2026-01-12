@@ -6,16 +6,16 @@
 
 - **文档目的**：让后来者（包括其他 AI）能快速理解 Phone Agent 当前实现到哪里、有哪些关键决策未定、以及遇到的问题是怎么定位/修复的。
 - **阅读顺序建议**：先看「最新状态」→「代码入口」→「关键决策」→「路线图」→「开发构想」→「问题记录」→「更新记录」→「知识库」。
-- **自动化对齐路线（Operit 方法论）**：见 [自动化升级计划.md](./自动化升级计划.md)
+- **自动化对齐路线（Aries 方法论）**：见 [自动化升级计划.md](./自动化升级计划.md)
 
 ## 目录
 
 - [1. 最新状态（2026-01-11）](#1-最新状态2026-01-11)
-- [自动化升级计划（按 Operit 方法论全面对齐｜仅无障碍）](./自动化升级计划.md)
+- [自动化升级计划（ 方法论全面对齐｜仅无障碍）](./自动化升级计划.md)
 - [2. 关键代码入口与数据流索引](#2-关键代码入口与数据流索引)
 - [3. 关键决策（待确认）](#3-关键决策待确认)
 - [4. 近期路线图（对齐 TODO）](#4-近期路线图对齐-todo)
-- [5. 开发构想（DeepSeek 风格手机助手）](#5-开发构想deepseek-风格手机助手)
+- [5. 开发构想（Aries 风格手机助手）](#5-开发构想aries-风格手机助手)
 - [6. 问题记录（定位 → 修复）](#6-问题记录定位--修复)
 - [7. 更新记录（Changelog）](#7-更新记录changelog)
 - [8. 知识库（Reference）](#8-知识库reference)
@@ -33,7 +33,7 @@
   - 目标：让 UI 解析器能稳定区分思考与正式回答，避免标记泄露到消息正文。
 
 - **流式解析器吞标记（已对齐）**：
-  - `DeepSeekStreamParser` 识别 `【回答开始】/【回答结束】` 等控制标记，以 `CONTROL` chunk 驱动 UI 阶段切换，UI 不直接显示标记文本。
+  - `AriesStreamParser` 识别 `【回答开始】/【回答结束】` 等控制标记，以 `CONTROL` chunk 驱动 UI 阶段切换，UI 不直接显示标记文本。
   - 支持标记被拆分到多段 delta 的情况（buffer + potential tag 检测避免误输出）。
 
 - **Markdown 渲染统一为 Markwon（已实现）**：
@@ -56,7 +56,7 @@
   - 流式结束与历史加载均确保：无思考内容时隐藏思考区，避免“展开为空”的体验。
 
 - **主界面消息气泡“重试/重新生成”修复（已实现）**：
-  - 目标体验对齐 DeepSeek regenerate：点击某条 AI 气泡的「重试」会重发**对应的用户问题**，并重新发起一条新的流式请求。
+  - 目标体验对齐 Aries regenerate：点击某条 AI 气泡的「重试」会重发**对应的用户问题**，并重新发起一条新的流式请求。
   - 历史消息：在渲染时为每条 AI 气泡绑定其上方最近一条用户消息作为重试 prompt，避免误用“会话最后一条 user”。
   - 请求上下文：当 `resendUser=false`（重试）时，将请求 `chatHistory` 截断到目标 user message（移除其后的 assistant/error），确保上下文末尾为 user，降低空流/失败提示被当上下文导致的异常概率。
   - 兜底：若无法定位可重试的用户问题，提示 `未找到可重试的用户问题`。
@@ -66,7 +66,7 @@
   - `app/src/main/java/com/ai/phoneagent/MainActivity.kt`
   - `app/src/main/java/com/ai/phoneagent/FloatingChatService.kt`
   - `app/src/main/java/com/ai/phoneagent/helper/StreamRenderHelper.kt`
-  - `app/src/main/java/com/ai/phoneagent/helper/DeepSeekStreamParser.kt`
+  - `app/src/main/java/com/ai/phoneagent/helper/AriesStreamParser.kt`
   - `app/src/main/java/com/ai/phoneagent/helper/MarkdownRenderer.kt`
 
 ### 输入框偶现失焦修复 + 自动化语音输入增强（2026-01-09）
@@ -142,7 +142,7 @@
   - **B. 前台跳板 + PendingIntent（对齐 Android 14+）**：通过 `PendingIntent -> LaunchProxyActivity -> MainActivity` 拉起；Android 14+ 使用 `ActivityOptions.setPendingIntentBackgroundActivityStartMode(MODE_BACKGROUND_ACTIVITY_START_ALLOWED)` 显式 opt-in。
   - **C. 兜底**：若上述路径异常，再直接 `startActivity(...)`（仍可能被系统限制，但作为最后兜底）。
 - **原因说明**：
-  - Android 14+（targetSdk 34+）对“后台启动 Activity”限制更严格，Overlay 场景在不同 ROM/系统版本上可能出现“点击后只关闭小窗但 Activity 未被拉起”的不确定性；因此需要任务栈前置 + PendingIntent opt-in 的双保险，行为更接近 Operit 等成熟悬浮窗应用。
+  - Android 14+（targetSdk 34+）对“后台启动 Activity”限制更严格，Overlay 场景在不同 ROM/系统版本上可能出现“点击后只关闭小窗但 Activity 未被拉起”的不确定性；因此需要任务栈前置 + PendingIntent opt-in 的双保险。
 
 - **稳定性与防闪关键点（已落地）**：
   - **ACK 机制**：主界面在检测到从小窗返回（`intent.getBooleanExtra("from_floating", false)`）后，发送广播 `FloatingChatService.ACTION_FLOATING_RETURNED` 作为“已回前台”确认。
@@ -315,7 +315,7 @@
 - **TODO#9（pending）**：抖音“点赞置顶评论”本地模板动作（降低模型不确定性）
 - **TODO#5（in_progress）**：本地编译/运行验证（编译已通过；待真机回归 overlay/进度与重试日志）
 
-## 5. 开发构想（DeepSeek 风格手机助手）
+## 5. 开发构想（Aries 风格手机助手）
 
 - **模型接入**：集成智谱 AutoGLM-Phone-9B，封装推理接口（HTTP/WebSocket），添加 Token/密钥配置页。
 - **多模态/自动化能力**：
@@ -438,8 +438,8 @@
   - 涉及文件：`MainActivity.kt`
 
 - **流式解析：吞掉回答开始/结束标记，避免 UI 泄露**
-  - `DeepSeekStreamParser` 增强：识别回答开始/结束标记并以控制信号驱动 UI 阶段切换。
-  - 涉及文件：`helper/DeepSeekStreamParser.kt`
+  - `AriesStreamParser` 增强：识别回答开始/结束标记并以控制信号驱动 UI 阶段切换。
+  - 涉及文件：`helper/AriesStreamParser.kt`
 
 - **Markdown 渲染：历史/最终态统一为 Markwon**
   - `StreamRenderHelper.applyMarkdownToHistory()` 改为使用 `MarkdownRenderer`（Markwon）渲染。
@@ -577,7 +577,7 @@
 ### 更新记录 · 2025-12-30
 
 - Drawer/手势
-  - Drawer 打开时主内容区域平移+缩放（DeepSeek 风格），并关闭 scrim（透明遮罩）。
+  - Drawer 打开时主内容区域平移+缩放（Aries 风格），并关闭 scrim（透明遮罩）。
   - 支持全屏右滑打开 Drawer、左滑关闭。
 
 - 顶部栏

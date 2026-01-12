@@ -7,7 +7,7 @@ import android.os.Parcel;
 /* loaded from: classes.dex */
 public abstract class d extends Binder implements e {
     public d() {
-        attachInterface(this, "com.ai.assistance.operit.provider.IAccessibilityProvider");
+        attachInterface(this, "com.ai.assistance.aries.provider.IAccessibilityProvider");
     }
 
     @Override // android.os.IInterface
@@ -23,10 +23,10 @@ public abstract class d extends Binder implements e {
     @Override // android.os.Binder
     public final boolean onTransact(int i3, Parcel parcel, Parcel parcel2, int i4) {
         if (i3 >= 1 && i3 <= 16777215) {
-            parcel.enforceInterface("com.ai.assistance.operit.provider.IAccessibilityProvider");
+            parcel.enforceInterface("com.ai.assistance.aries.provider.IAccessibilityProvider");
         }
         if (i3 == 1598968902) {
-            parcel2.writeString("com.ai.assistance.operit.provider.IAccessibilityProvider");
+            parcel2.writeString("com.ai.assistance.aries.provider.IAccessibilityProvider");
             return true;
         }
         switch (i3) {
@@ -51,7 +51,8 @@ public abstract class d extends Binder implements e {
                 parcel2.writeInt(zB ? 1 : 0);
                 return true;
             case 5:
-                boolean zI = i(parcel.readInt(), parcel.readInt(), parcel.readInt(), parcel.readInt(), parcel.readLong());
+                boolean zI = i(parcel.readInt(), parcel.readInt(), parcel.readInt(), parcel.readInt(),
+                        parcel.readLong());
                 parcel2.writeNoException();
                 parcel2.writeInt(zI ? 1 : 0);
                 return true;

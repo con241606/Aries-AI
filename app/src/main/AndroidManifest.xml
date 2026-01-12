@@ -43,11 +43,6 @@
         </service>
 
         <activity
-            android:name=".AutomationActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
             android:name=".AutomationActivityNew"
             android:exported="false"
             android:launchMode="singleTop"

@@ -8,7 +8,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
-import com.ai.assistance.operit.provider.UIAccessibilityService;
+import com.ai.assistance.aries.provider.UIAccessibilityService;
 import java.io.StringWriter;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
@@ -33,7 +33,8 @@ public final class l extends d {
         float f4 = (float) i4;
         path.moveTo(f3, f4);
         path.lineTo(f3, f4);
-        return this.f1280a.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0L, 600L)).build(), new j(1), null);
+        return this.f1280a.dispatchGesture(new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path, 0L, 600L)).build(), new j(1), null);
     }
 
     @Override // G1.e
@@ -49,7 +50,8 @@ public final class l extends d {
         float f4 = (float) i4;
         path.moveTo(f3, f4);
         path.lineTo(f3, f4);
-        return this.f1280a.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0L, 50L)).build(), new j(0), null);
+        return this.f1280a.dispatchGesture(new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path, 0L, 50L)).build(), new j(0), null);
     }
 
     @Override // G1.e
@@ -92,7 +94,10 @@ public final class l extends d {
             if (!zPerformAction) {
                 Rect rect = new Rect();
                 accessibilityNodeInfoA.getBoundsInScreen(rect);
-                Log.w("UIAccessibilityService", "setTextOnNode: performAction(ACTION_SET_TEXT) 在目标节点上返回 false. 节点信息: class=" + ((Object) accessibilityNodeInfoA.getClassName()) + ", text='" + ((Object) accessibilityNodeInfoA.getText()) + "', bounds=" + rect.toShortString());
+                Log.w("UIAccessibilityService",
+                        "setTextOnNode: performAction(ACTION_SET_TEXT) 在目标节点上返回 false. 节点信息: class="
+                                + ((Object) accessibilityNodeInfoA.getClassName()) + ", text='"
+                                + ((Object) accessibilityNodeInfoA.getText()) + "', bounds=" + rect.toShortString());
             }
             accessibilityNodeInfoB.recycle();
             accessibilityNodeInfoA.recycle();
@@ -154,7 +159,8 @@ public final class l extends d {
             }
             uIAccessibilityService.f3847e = System.currentTimeMillis();
             CountDownLatch countDownLatch = new CountDownLatch(1);
-            uIAccessibilityService.takeScreenshot(0, uIAccessibilityService.getMainExecutor(), new k(str, lowerCase, mVar, countDownLatch));
+            uIAccessibilityService.takeScreenshot(0, uIAccessibilityService.getMainExecutor(),
+                    new k(str, lowerCase, mVar, countDownLatch));
             try {
                 countDownLatch.await();
             } catch (InterruptedException unused2) {
@@ -169,7 +175,8 @@ public final class l extends d {
         Path path = new Path();
         path.moveTo(i3, i4);
         path.lineTo(i5, i6);
-        return this.f1280a.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0L, j3)).build(), null, null);
+        return this.f1280a.dispatchGesture(new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path, 0L, j3)).build(), null, null);
     }
 
     @Override // G1.e

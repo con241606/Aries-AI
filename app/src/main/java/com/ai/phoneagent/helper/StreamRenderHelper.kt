@@ -15,8 +15,8 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * DeepSeek 风格流式渲染助手
- * 
+ * Aries AI 流式渲染助手
+ *
  * 特点：
  * 1. 思考中：显示"思考中"，实时展示思考过程
  * 2. 已思考：思考结束后显示"已思考 (用时 X 秒)"
@@ -163,7 +163,7 @@ object StreamRenderHelper {
 
     // 缓存
     private val animators = ConcurrentHashMap<Int, TextAnimator>()
-    private val parsers = ConcurrentHashMap<Int, DeepSeekStreamParser>()
+    private val parsers = ConcurrentHashMap<Int, AriesStreamParser>()
     private var thinkingStartTime = 0L
 
     fun bindViews(aiView: View): ViewHolder {
@@ -198,7 +198,7 @@ object StreamRenderHelper {
         thinkingStartTime = System.currentTimeMillis()
         
         // 4. 初始化新的解析器
-        parsers[viewId] = DeepSeekStreamParser()
+        parsers[viewId] = AriesStreamParser()
         
         // 5. 设置 UI 状态
         vh.authorName.visibility = View.VISIBLE
@@ -228,8 +228,8 @@ object StreamRenderHelper {
         }
     }
 
-    private fun getParser(vh: ViewHolder): DeepSeekStreamParser {
-        return parsers.getOrPut(vh.hashCode()) { DeepSeekStreamParser() }
+    private fun getParser(vh: ViewHolder): AriesStreamParser {
+        return parsers.getOrPut(vh.hashCode()) { AriesStreamParser() }
     }
 
     private fun getAnimator(
@@ -306,7 +306,7 @@ object StreamRenderHelper {
         
         for (chunk in chunks) {
             when (chunk.type) {
-                DeepSeekStreamParser.ChunkType.THINKING -> {
+                AriesStreamParser.ChunkType.THINKING -> {
                     // 确保思考区域可见
                     if (vh.thinkingLayout.visibility != View.VISIBLE) {
                         vh.thinkingLayout.visibility = View.VISIBLE
@@ -317,7 +317,7 @@ object StreamRenderHelper {
                     animator.append(chunk.content)
                 }
                 
-                DeepSeekStreamParser.ChunkType.ANSWER -> {
+                AriesStreamParser.ChunkType.ANSWER -> {
                     // 首次收到回答内容，触发状态切换
                     val answerAnimator = animators[vh.messageContent.hashCode()]
                     if (answerAnimator == null || answerAnimator.getText().isEmpty()) {
@@ -329,7 +329,7 @@ object StreamRenderHelper {
                     animator.append(chunk.content)
                 }
                 
-                DeepSeekStreamParser.ChunkType.CONTROL -> {
+                AriesStreamParser.ChunkType.CONTROL -> {
                     when (chunk.content) {
                         "THINKING_END", "ANSWER_START" -> {
                             onPhaseChange(true)
@@ -385,9 +385,9 @@ object StreamRenderHelper {
         val extraAnswer = StringBuilder()
         for (chunk in flushedChunks) {
             when (chunk.type) {
-                DeepSeekStreamParser.ChunkType.THINKING -> extraThinking.append(chunk.content)
-                DeepSeekStreamParser.ChunkType.ANSWER -> extraAnswer.append(chunk.content)
-                DeepSeekStreamParser.ChunkType.CONTROL -> Unit
+                AriesStreamParser.ChunkType.THINKING -> extraThinking.append(chunk.content)
+                AriesStreamParser.ChunkType.ANSWER -> extraAnswer.append(chunk.content)
+                AriesStreamParser.ChunkType.CONTROL -> Unit
             }
         }
 

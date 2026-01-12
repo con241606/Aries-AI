@@ -20,7 +20,7 @@ import io.noties.prism4j.Prism4j
 import io.noties.prism4j.annotations.PrismBundle
 
 /**
- * DeepSeek 风格的 Markdown 渲染器
+ * Aries AI 的 Markdown 渲染器
  * 
  * 支持实时流式渲染，包括：
  * - 标题
@@ -83,7 +83,7 @@ class MarkdownRenderer(context: Context) {
 
 /**
  * 简单的 Markdown 渲染器（不依赖外部库，作为后备方案）
- * 优化版：更接近 DeepSeek 的渲染效果
+ * 优化版
  */
 object SimpleMarkdownRenderer {
 
@@ -143,7 +143,7 @@ object SimpleMarkdownRenderer {
         val end = builder.length
         builder.append("\n")
         
-        // 应用等宽字体和背景色（类似 DeepSeek 的浅灰背景）
+        // 应用等宽字体和背景色（Aries AI 样式）
         builder.setSpan(
             TypefaceSpan("monospace"),
             start, end,
@@ -286,7 +286,7 @@ object SimpleMarkdownRenderer {
             val content = match.groupValues[1]
             
             builder.replace(start, end, content)
-            // DeepSeek 风格：浅粉背景 + 深红文字
+            // Aries AI 风格：浅粉背景 + 深红文字
             builder.setSpan(
                 BackgroundColorSpan(Color.parseColor("#FFF1F0")),
                 start, start + content.length,
@@ -328,7 +328,7 @@ object SimpleMarkdownRenderer {
                 start, start + content.length,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
-            // DeepSeek 风格：更深的黑色 + 稍大字号
+            // Aries AI 风格：更深的黑色 + 稍大字号
             builder.setSpan(
                 ForegroundColorSpan(Color.parseColor("#0A0A0A")),
                 start, start + content.length,

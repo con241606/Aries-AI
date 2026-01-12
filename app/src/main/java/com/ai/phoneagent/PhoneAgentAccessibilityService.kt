@@ -446,7 +446,7 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
 
     /**
      * 带重试机制的 UI 树获取
-     * 参考 Operit 的 getUIHierarchyWithRetry 策略
+    * getUIHierarchyWithRetry 策略
      */
     suspend fun dumpUiTreeWithRetry(maxNodes: Int = 30, maxRetries: Int = 3, retryDelayMs: Long = 300): String {
         repeat(maxRetries) { attempt ->

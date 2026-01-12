@@ -1,7 +1,7 @@
 package G1;
 
 import android.util.Log;
-import com.ai.assistance.operit.provider.UIAccessibilityService;
+import com.ai.assistance.aries.provider.UIAccessibilityService;
 
 /* loaded from: classes.dex */
 public final class h extends d {
