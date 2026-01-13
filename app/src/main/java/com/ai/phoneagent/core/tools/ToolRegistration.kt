@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import com.ai.phoneagent.PhoneAgentAccessibilityService
 import com.ai.phoneagent.data.model.*
 import kotlinx.coroutines.delay
@@ -293,6 +294,277 @@ object ToolRegistration {
                             success = success,
                             result = UIActionResultData("input_text", success, "输入: $text"),
                             error = if (success) "" else "输入失败"
+                        )
+                    }
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-005 click_element
+        // ============================================================================
+        handler.registerTool(
+            name = "click_element",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val text = tool.parameters.find { it.name == "text" }?.value
+                val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                val contentDesc = tool.parameters.find { it.name == "content_desc" }?.value
+                val selector = text ?: resourceId ?: contentDesc ?: "元素"
+                "点击元素: $selector"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                    val text = tool.parameters.find { it.name == "text" }?.value
+                    val contentDesc = tool.parameters.find { it.name == "content_desc" }?.value
+                    val className = tool.parameters.find { it.name == "class_name" }?.value
+                    val index = tool.parameters.find { it.name == "index" }?.value?.toIntOrNull() ?: 0
+                    val bounds = tool.parameters.find { it.name == "bounds" }?.value
+                    val x = tool.parameters.find { it.name == "x" }?.value?.toFloatOrNull()
+                    val y = tool.parameters.find { it.name == "y" }?.value?.toFloatOrNull()
+                    
+                    // 至少需要一个选择器或兜底参数
+                    if (resourceId.isNullOrBlank() && text.isNullOrBlank() && 
+                        contentDesc.isNullOrBlank() && className.isNullOrBlank() &&
+                        bounds.isNullOrBlank() && (x == null || y == null)) {
+                        ToolResult(
+                            toolName = tool.name,
+                            success = false,
+                            error = "需要选择器(resource_id/text/content_desc/class_name)或bounds/x,y兜底"
+                        )
+                    } else {
+                        Log.d("TOOL_CLICK", "调用click_element: res=$resourceId text=$text class=$className idx=$index bounds=$bounds x=$x y=$y")
+                        val success = service.clickElement(resourceId, text, contentDesc, className, index, bounds, x, y)
+                        val selector = text ?: resourceId ?: contentDesc ?: className ?: bounds ?: "coords(${x},${y})"
+                        ToolResult(
+                            toolName = tool.name,
+                            success = success,
+                            result = UIActionResultData("click_element", success, "点击: $selector (index=$index)"),
+                            error = if (success) "" else "未找到匹配元素或点击失败"
+                        )
+                    }
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-006 set_input_text
+        // ============================================================================
+        handler.registerTool(
+            name = "set_input_text",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val text = tool.parameters.find { it.name == "text" }?.value ?: ""
+                val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                val target = resourceId ?: "当前焦点"
+                "在[$target]输入文本: $text"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val text = tool.parameters.find { it.name == "text" }?.value
+                    if (text == null) {
+                        ToolResult(
+                            toolName = tool.name,
+                            success = false,
+                            error = "缺少text参数"
+                        )
+                    } else {
+                        val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                        val elementText = tool.parameters.find { it.name == "element_text" }?.value
+                        val contentDesc = tool.parameters.find { it.name == "content_desc" }?.value
+                        val className = tool.parameters.find { it.name == "class_name" }?.value
+                        val index = tool.parameters.find { it.name == "index" }?.value?.toIntOrNull() ?: 0
+                        
+                        val success = if (resourceId.isNullOrBlank() && elementText.isNullOrBlank() && 
+                                          contentDesc.isNullOrBlank() && className.isNullOrBlank()) {
+                            // 无选择器时，对当前焦点输入
+                            service.performTextInput(text)
+                        } else {
+                            // 有选择器时，定位元素后输入
+                            service.setTextOnElement(text, resourceId, elementText, contentDesc, className, index)
+                        }
+                        
+                        ToolResult(
+                            toolName = tool.name,
+                            success = success,
+                            result = UIActionResultData("set_input_text", success, "输入: $text"),
+                            error = if (success) "" else "输入失败，可能未找到目标输入框"
+                        )
+                    }
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-007 wait_for_element
+        // ============================================================================
+        handler.registerTool(
+            name = "wait_for_element",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val text = tool.parameters.find { it.name == "text" }?.value
+                val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                val timeout = tool.parameters.find { it.name == "timeout_ms" }?.value ?: "5000"
+                val selector = text ?: resourceId ?: "指定元素"
+                "等待元素出现: $selector (timeout=${timeout}ms)"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                    val text = tool.parameters.find { it.name == "text" }?.value
+                    val contentDesc = tool.parameters.find { it.name == "content_desc" }?.value
+                    val className = tool.parameters.find { it.name == "class_name" }?.value
+                    val timeoutMs = tool.parameters.find { it.name == "timeout_ms" }?.value?.toLongOrNull() ?: 5000L
+                    val pollIntervalMs = tool.parameters.find { it.name == "poll_interval_ms" }?.value?.toLongOrNull() ?: 200L
+                    
+                    if (resourceId.isNullOrBlank() && text.isNullOrBlank() && 
+                        contentDesc.isNullOrBlank() && className.isNullOrBlank()) {
+                        ToolResult(
+                            toolName = tool.name,
+                            success = false,
+                            error = "需要至少一个选择器参数: resource_id, text, content_desc, 或 class_name"
+                        )
+                    } else {
+                        val found = service.waitForElement(resourceId, text, contentDesc, className, timeoutMs, pollIntervalMs)
+                        val selector = text ?: resourceId ?: contentDesc ?: className ?: "unknown"
+                        ToolResult(
+                            toolName = tool.name,
+                            success = found,
+                            result = StringResultData(if (found) "元素已出现: $selector" else "等待超时: $selector"),
+                            error = if (found) "" else "等待超时，元素未出现"
+                        )
+                    }
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-009 press_key
+        // ============================================================================
+        handler.registerTool(
+            name = "press_key",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val keyCode = tool.parameters.find { it.name == "key_code" }?.value ?: "BACK"
+                "按键: $keyCode"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val keyCode = tool.parameters.find { it.name == "key_code" }?.value
+                    if (keyCode.isNullOrBlank()) {
+                        ToolResult(
+                            toolName = tool.name,
+                            success = false,
+                            error = "缺少key_code参数。支持: HOME, BACK, RECENTS, NOTIFICATIONS, QUICK_SETTINGS, POWER_DIALOG, LOCK_SCREEN"
+                        )
+                    } else {
+                        val success = service.pressKey(keyCode)
+                        ToolResult(
+                            toolName = tool.name,
+                            success = success,
+                            result = UIActionResultData("press_key", success, "按键: $keyCode"),
+                            error = if (success) "" else "按键失败或不支持的key_code"
+                        )
+                    }
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-010 get_current_app
+        // ============================================================================
+        handler.registerTool(
+            name = "get_current_app",
+            dangerCheck = { false },
+            descriptionGenerator = { "获取当前应用信息" },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val appInfo = service.getCurrentAppInfo()
+                    ToolResult(
+                        toolName = tool.name,
+                        success = true,
+                        result = StringResultData(appInfo)
+                    )
+                }
+            }
+        )
+
+        // ============================================================================
+        // Operit 同款工具接口 - TODO-012 find_elements
+        // ============================================================================
+        handler.registerTool(
+            name = "find_elements",
+            dangerCheck = { false },
+            descriptionGenerator = { tool ->
+                val text = tool.parameters.find { it.name == "text" }?.value
+                val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                val selector = text ?: resourceId ?: "所有匹配"
+                "查找元素: $selector"
+            },
+            executor = { tool ->
+                val service = PhoneAgentAccessibilityService.instance
+                if (service == null) {
+                    ToolResult(
+                        toolName = tool.name,
+                        success = false,
+                        error = "无障碍服务未启用"
+                    )
+                } else {
+                    val resourceId = tool.parameters.find { it.name == "resource_id" }?.value
+                    val text = tool.parameters.find { it.name == "text" }?.value
+                    val contentDesc = tool.parameters.find { it.name == "content_desc" }?.value
+                    val className = tool.parameters.find { it.name == "class_name" }?.value
+                    val maxResults = tool.parameters.find { it.name == "max_results" }?.value?.toIntOrNull() ?: 10
+                    
+                    if (resourceId.isNullOrBlank() && text.isNullOrBlank() && 
+                        contentDesc.isNullOrBlank() && className.isNullOrBlank()) {
+                        ToolResult(
+                            toolName = tool.name,
+                            success = false,
+                            error = "需要至少一个选择器参数: resource_id, text, content_desc, 或 class_name"
+                        )
+                    } else {
+                        val elements = service.findElements(resourceId, text, contentDesc, className, maxResults)
+                        ToolResult(
+                            toolName = tool.name,
+                            success = true,
+                            result = StringResultData(elements)
                         )
                     }
                 }

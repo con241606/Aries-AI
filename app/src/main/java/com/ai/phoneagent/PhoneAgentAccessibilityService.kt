@@ -603,23 +603,254 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
         return false
     }
 
+    // ============================================================================
+    // Operit 同款工具接口 - TODO-007 wait_for_element
+    // ============================================================================
+    
+    /**
+     * 等待元素出现（轮询机制）
+     * @param resourceId 资源ID（如 "com.example:id/button"）
+     * @param text 文本内容（模糊匹配）
+     * @param contentDesc 内容描述（模糊匹配）
+     * @param className 类名（如 "Button" 或完整类名）
+     * @param timeoutMs 超时时间（默认5000ms）
+     * @param pollIntervalMs 轮询间隔（默认200ms）
+     * @return 是否找到元素
+     */
+    suspend fun waitForElement(
+        resourceId: String? = null,
+        text: String? = null,
+        contentDesc: String? = null,
+        className: String? = null,
+        timeoutMs: Long = 5000L,
+        pollIntervalMs: Long = 200L,
+    ): Boolean {
+        if (resourceId.isNullOrBlank() && text.isNullOrBlank() && 
+            contentDesc.isNullOrBlank() && className.isNullOrBlank()) {
+            return false // 至少需要一个选择器
+        }
+        
+        val startTime = android.os.SystemClock.uptimeMillis()
+        while (android.os.SystemClock.uptimeMillis() - startTime < timeoutMs) {
+            val root = rootInActiveWindow
+            if (root != null) {
+                val found = findNode(root, resourceId, text, contentDesc, className, 0)
+                if (found != null) {
+                    Log.d("WAIT_ELEMENT", "元素已找到: resourceId=$resourceId, text=$text, 耗时=${android.os.SystemClock.uptimeMillis() - startTime}ms")
+                    return true
+                }
+            }
+            delay(pollIntervalMs)
+        }
+        Log.d("WAIT_ELEMENT", "等待超时: resourceId=$resourceId, text=$text, timeout=${timeoutMs}ms")
+        return false
+    }
+    
+    // ============================================================================
+    // Operit 同款工具接口 - TODO-012 find_elements
+    // ============================================================================
+    
+    /**
+     * 查找所有匹配的元素
+     * @return 匹配元素的信息列表 (JSON格式)
+     */
+    fun findElements(
+        resourceId: String? = null,
+        text: String? = null,
+        contentDesc: String? = null,
+        className: String? = null,
+        maxResults: Int = 10,
+    ): String {
+        val root = rootInActiveWindow ?: return "[]"
+        val results = mutableListOf<JSONObject>()
+        
+        findAllMatchingNodes(root, resourceId, text, contentDesc, className, maxResults, results)
+        
+        val jsonArray = JSONArray()
+        results.forEach { jsonArray.put(it) }
+        
+        Log.d("FIND_ELEMENTS", "找到 ${results.size} 个匹配元素: resourceId=$resourceId, text=$text")
+        return jsonArray.toString()
+    }
+    
+    private fun findAllMatchingNodes(
+        root: AccessibilityNodeInfo,
+        resourceId: String?,
+        text: String?,
+        contentDesc: String?,
+        className: String?,
+        maxResults: Int,
+        results: MutableList<JSONObject>,
+    ) {
+        fun matches(node: AccessibilityNodeInfo): Boolean {
+            val id = node.viewIdResourceName?.trim().orEmpty()
+            val clsFull = node.className?.toString()?.trim().orEmpty()
+            val clsShort = clsFull.substringAfterLast('.')
+            val t = node.text?.toString()?.trim().orEmpty()
+            val d = node.contentDescription?.toString()?.trim().orEmpty()
+
+            if (!resourceId.isNullOrBlank()) {
+                if (id.isBlank()) return false
+                if (!id.endsWith(resourceId) && !id.contains(resourceId)) return false
+            }
+            if (!className.isNullOrBlank()) {
+                if (clsFull != className && clsShort != className && 
+                    !clsFull.contains(className, ignoreCase = true)) return false
+            }
+            if (!text.isNullOrBlank()) {
+                if (t.isBlank()) return false
+                if (!t.contains(text, ignoreCase = true)) return false
+            }
+            if (!contentDesc.isNullOrBlank()) {
+                if (d.isBlank()) return false
+                if (!d.contains(contentDesc, ignoreCase = true)) return false
+            }
+            return true
+        }
+        
+        fun nodeToJson(node: AccessibilityNodeInfo, index: Int): JSONObject {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            return JSONObject().apply {
+                put("index", index)
+                put("resource_id", node.viewIdResourceName ?: "")
+                put("class", node.className?.toString() ?: "")
+                put("text", node.text?.toString() ?: "")
+                put("content_desc", node.contentDescription?.toString() ?: "")
+                put("bounds", bounds.toShortString())
+                put("clickable", node.isClickable)
+                put("enabled", node.isEnabled)
+                put("editable", node.isEditable)
+            }
+        }
+
+        val q = ArrayDeque<AccessibilityNodeInfo>()
+        q.add(root)
+        var seen = 0
+        var matchIndex = 0
+        while (q.isNotEmpty() && seen < 2000 && results.size < maxResults) {
+            seen++
+            val n = q.removeFirst()
+            if (matches(n)) {
+                results.add(nodeToJson(n, matchIndex))
+                matchIndex++
+            }
+            for (i in 0 until n.childCount) {
+                n.getChild(i)?.let { q.add(it) }
+            }
+        }
+    }
+
+    private fun parseBoundsCenter(boundsStr: String): Pair<Float, Float>? {
+        // 格式: [left,top][right,bottom]
+        return try {
+            val regex = "\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]".toRegex()
+            val match = regex.find(boundsStr)
+            if (match != null && match.groupValues.size == 5) {
+                val l = match.groupValues[1].toFloat()
+                val t = match.groupValues[2].toFloat()
+                val r = match.groupValues[3].toFloat()
+                val b = match.groupValues[4].toFloat()
+                Pair((l + r) / 2f, (t + b) / 2f)
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+    
+    // ============================================================================
+    // Operit 同款工具接口 - TODO-009 press_key
+    // ============================================================================
+    
+    /**
+     * 统一的按键接口
+     * @param keyCode 按键码: HOME, BACK, RECENTS, NOTIFICATIONS, QUICK_SETTINGS, POWER_DIALOG, LOCK_SCREEN
+     * @return 是否成功
+     */
+    fun pressKey(keyCode: String): Boolean {
+        val action = when (keyCode.uppercase().trim()) {
+            "HOME" -> GLOBAL_ACTION_HOME
+            "BACK" -> GLOBAL_ACTION_BACK
+            "RECENTS" -> GLOBAL_ACTION_RECENTS
+            "NOTIFICATIONS" -> GLOBAL_ACTION_NOTIFICATIONS
+            "QUICK_SETTINGS" -> GLOBAL_ACTION_QUICK_SETTINGS
+            "POWER_DIALOG" -> GLOBAL_ACTION_POWER_DIALOG
+            "LOCK_SCREEN" -> if (Build.VERSION.SDK_INT >= 28) GLOBAL_ACTION_LOCK_SCREEN else return false
+            else -> {
+                Log.w("PRESS_KEY", "未知按键码: $keyCode")
+                return false
+            }
+        }
+        val result = performGlobalAction(action)
+        Log.d("PRESS_KEY", "按键 $keyCode -> action=$action, result=$result")
+        return result
+    }
+    
+    // ============================================================================
+    // Operit 同款工具接口 - TODO-010 get_current_app
+    // ============================================================================
+    
+    /**
+     * 获取当前应用详细信息
+     * @return JSON格式的应用信息
+     */
+    fun getCurrentAppInfo(): String {
+        val root = rootInActiveWindow
+        val packageName = root?.packageName?.toString() ?: "unknown"
+        val activityClass = root?.className?.toString() ?: "unknown"
+        
+        return JSONObject().apply {
+            put("package_name", packageName)
+            put("activity_class", activityClass)
+            put("timestamp", System.currentTimeMillis())
+        }.toString()
+    }
+
     suspend fun clickElement(
             resourceId: String? = null,
             text: String? = null,
             contentDesc: String? = null,
             className: String? = null,
             index: Int = 0,
+            bounds: String? = null,
+            x: Float? = null,
+            y: Float? = null,
     ): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val target = findNode(root, resourceId, text, contentDesc, className, index) ?: return false
-        val clickable = findClickableAncestor(target) ?: target
-        if (clickable.isClickable && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-            return true
+        val root = rootInActiveWindow
+        if (root != null) {
+            val target = findNode(root, resourceId, text, contentDesc, className, index)
+            if (target != null) {
+                val clickable = findClickableAncestor(target) ?: target
+                if (clickable.isClickable && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    Log.d("CLICK_ELEMENT", "selector点击成功: res=$resourceId text=$text class=$className idx=$index")
+                    return true
+                }
+                val r = Rect()
+                clickable.getBoundsInScreen(r)
+                if (!r.isEmpty) {
+                    val ok = clickAwait(r.centerX().toFloat(), r.centerY().toFloat())
+                    Log.d("CLICK_ELEMENT", "selector坐标兜底: bounds=${r.toShortString()} ok=$ok")
+                    return ok
+                }
+            }
         }
-        val r = Rect()
-        clickable.getBoundsInScreen(r)
-        if (r.isEmpty) return false
-        return clickAwait(r.centerX().toFloat(), r.centerY().toFloat())
+
+        if (!bounds.isNullOrBlank()) {
+            parseBoundsCenter(bounds)?.let { (cx, cy) ->
+                val ok = clickAwait(cx, cy)
+                Log.d("CLICK_ELEMENT", "bounds兜底: $bounds -> ($cx,$cy) ok=$ok")
+                return ok
+            }
+        }
+
+        if (x != null && y != null) {
+            val ok = clickAwait(x, y)
+            Log.d("CLICK_ELEMENT", "坐标兜底: ($x,$y) ok=$ok")
+            return ok
+        }
+
+        Log.w("CLICK_ELEMENT", "未找到元素且无兜底坐标: res=$resourceId text=$text class=$className idx=$index")
+        return false
     }
 
     suspend fun setTextOnElement(

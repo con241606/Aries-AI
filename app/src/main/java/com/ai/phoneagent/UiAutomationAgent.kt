@@ -1,4 +1,4 @@
-package com.ai.phoneagent
+﻿package com.ai.phoneagent
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
@@ -9,6 +9,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -44,6 +46,10 @@ class UiAutomationAgent(
             val maxContextTokens: Int = 20000,  // 留足够余量给输出
             val maxUiTreeChars: Int = 3000,     // 限制UI树大小
             val maxHistoryTurns: Int = 6,       // 最多保留几轮对话
+            // 性能优化参数
+            val useStreamingWithEarlyStop: Boolean = true,  // 使用流式API并在获取完整动作后早停
+            val parallelScreenshotAndUi: Boolean = true,    // 并行获取截图和UI树
+            val postActionDelayMs: Long = 120L,             // 执行动作后等待时间（原160ms）
     )
 
     data class Result(
@@ -111,6 +117,81 @@ class UiAutomationAgent(
         val base = config.modelRetryBaseDelayMs.coerceAtLeast(0L)
         val mult = 1L shl attempt.coerceIn(0, 6)
         return (base * mult).coerceAtMost(6000L)
+    }
+
+    /**
+     * 流式请求模型并支持早停优化
+     * 当检测到完整的 do(...) 或 finish(...) 动作时，立即停止读取后续内容
+     * 可节省 0.5-2 秒的"尾部等待"时间
+     */
+    private suspend fun requestModelStreamingWithEarlyStop(
+            apiKey: String,
+            model: String,
+            messages: List<ChatRequestMessage>,
+            step: Int,
+            onLog: (String) -> Unit,
+            onThinkingDelta: (String) -> Unit,
+    ): kotlin.Result<String> {
+        val thinkingBuilder = StringBuilder()
+        val contentBuilder = StringBuilder()
+        var hasCompleteAction = false
+        
+        // 检测是否已获取完整动作（用于早停）
+        fun checkCompleteAction(text: String): Boolean {
+            // 检测完整的 do(...) 或 finish(...)
+            val doMatch = Regex("""do\s*\([^)]*\)""").find(text)
+            val finishMatch = Regex("""finish\s*\([^)]*\)""").find(text)
+            return doMatch != null || finishMatch != null
+        }
+        
+        val result = withContext(Dispatchers.IO) {
+            AutoGlmClient.sendChatStreamResult(
+                apiKey = apiKey,
+                messages = messages,
+                model = model,
+                temperature = config.temperature,
+                maxTokens = config.maxTokens,
+                topP = config.topP,
+                frequencyPenalty = config.frequencyPenalty,
+                onReasoningDelta = { delta ->
+                    thinkingBuilder.append(delta)
+                    onThinkingDelta(delta)
+                },
+                onContentDelta = { delta ->
+                    contentBuilder.append(delta)
+                    // 检测是否已获取完整动作
+                    if (!hasCompleteAction && checkCompleteAction(contentBuilder.toString())) {
+                        hasCompleteAction = true
+                    }
+                },
+                shouldStop = { hasCompleteAction },
+                useFastTimeouts = true,
+            )
+        }
+        
+        if (result.isFailure) {
+            return kotlin.Result.failure(result.exceptionOrNull() ?: IOException("Streaming failed"))
+        }
+        
+        // 组合思考和内容
+        val fullResponse = buildString {
+            if (thinkingBuilder.isNotEmpty()) {
+                append("【思考开始】")
+                append(thinkingBuilder)
+                append("【思考结束】")
+            }
+            if (contentBuilder.isNotEmpty()) {
+                append("【回答开始】")
+                append(contentBuilder)
+                append("【回答结束】")
+            }
+        }
+        
+        return if (fullResponse.isNotBlank()) {
+            kotlin.Result.success(fullResponse)
+        } else {
+            kotlin.Result.failure(IOException("Empty response"))
+        }
     }
 
     private suspend fun requestModelWithRetry(
@@ -340,16 +421,31 @@ do(action="Tap", element=[x,y])
             awaitIfPaused(control)
 
             step++
-            AutomationOverlay.updateStep(step = step, maxSteps = config.maxSteps)
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "读取界面"
+            )
             
-            // 获取UI树并限制大小（带重试机制）
-            val rawUiDump = service.dumpUiTreeWithRetry(maxNodes = 30) // 减少节点数
+            // ⚡ 性能优化：并行获取截图和UI树
+            val (screenshot, rawUiDump) = coroutineScope {
+                val screenshotDeferred = async { service.tryCaptureScreenshotBase64() }
+                val uiDumpDeferred = async { service.dumpUiTreeWithRetry(maxNodes = 30) }
+                Pair(screenshotDeferred.await(), uiDumpDeferred.await())
+            }
+            
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0.15f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "解析界面"
+            )
             val uiDump = truncateUiTree(rawUiDump, config.maxUiTreeChars)
 
             val currentApp = service.currentAppPackage()
             val screenInfo = "{\"current_app\":\"${currentApp.replace("\"", "")}\"}"
 
-            val screenshot = service.tryCaptureScreenshotBase64()
             if (screenshot != null) {
                 onLog("[Step $step] 截图：${screenshot.width}x${screenshot.height}")
             } else {
@@ -388,21 +484,57 @@ do(action="Tap", element=[x,y])
             val observationUserIndex = history.lastIndex
 
             onLog("[Step $step] 请求模型…")
-            val replyResult =
-                    requestModelWithRetry(
-                            apiKey = apiKey,
-                            model = model,
-                            messages = history,
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0.25f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "请求模型"
+            )
+            
+            // ⚡ 性能优化：使用流式API + 早停
+            // 当检测到完整动作时立即停止读取，可节省0.5-2秒
+            var streamedThinking = ""
+            val replyResult = if (config.useStreamingWithEarlyStop) {
+                requestModelStreamingWithEarlyStop(
+                    apiKey = apiKey,
+                    model = model,
+                    messages = history,
+                    step = step,
+                    onLog = onLog,
+                    onThinkingDelta = { delta ->
+                        streamedThinking += delta
+                        // 实时更新进度显示
+                        AutomationOverlay.updateProgress(
                             step = step,
-                            purpose = "请求模型",
-                            onLog = onLog,
-                    )
+                            phaseInStep = 0.35f,
+                            maxSteps = config.maxSteps,
+                            subtitle = "思考中…"
+                        )
+                    },
+                )
+            } else {
+                requestModelWithRetry(
+                    apiKey = apiKey,
+                    model = model,
+                    messages = history,
+                    step = step,
+                    purpose = "请求模型",
+                    onLog = onLog,
+                )
+            }
             val finalReply = replyResult.getOrNull()?.trim().orEmpty()
             if (finalReply.isBlank()) {
                 val err = replyResult.exceptionOrNull()
                 val msg = err?.message?.trim().orEmpty().ifBlank { "模型无回复或请求失败" }
                 return Result(false, "模型请求失败：${msg.take(320)}", step)
             }
+
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0.55f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "解析模型输出"
+            )
 
             val (thinking, answer) = splitThinkingAndAnswer(finalReply)
             if (!thinking.isNullOrBlank()) {
@@ -437,6 +569,13 @@ do(action="Tap", element=[x,y])
                 return Result(false, "无法解析动作：${action.raw.take(240)}", step)
             }
 
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0.68f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "准备执行"
+            )
+
             var currentAction = action
             var actionName = ""
             var execOk = false
@@ -452,10 +591,11 @@ do(action="Tap", element=[x,y])
                 
                 // 更新悬浮窗显示当前执行的动作
                 val displayActionName = getDisplayActionName(actionName, currentAction)
-                AutomationOverlay.updateStep(
-                    step = step, 
-                    maxSteps = config.maxSteps, 
-                    subtitle = "执行 $displayActionName"
+                AutomationOverlay.updateProgress(
+                        step = step,
+                        phaseInStep = 0.78f,
+                        maxSteps = config.maxSteps,
+                        subtitle = "执行 $displayActionName"
                 )
 
                 if (actionName == "take_over" || actionName == "takeover") {
@@ -489,6 +629,13 @@ do(action="Tap", element=[x,y])
 
                 onLog("[Step $step] 动作执行失败，尝试让模型修复（$repairAttempt/${config.maxActionRepairs}）…")
 
+                AutomationOverlay.updateProgress(
+                        step = step,
+                        phaseInStep = 0.62f,
+                        maxSteps = config.maxSteps,
+                        subtitle = "动作失败，修复中"
+                )
+
                 val failMsg =
                         "上一步动作执行失败：${currentAction.raw.take(320)}\n" +
                                 "请根据上一条屏幕信息重新给出下一步动作，优先使用 selector（resourceId/elementText/contentDesc/className/index）。\n" +
@@ -510,6 +657,13 @@ do(action="Tap", element=[x,y])
                     val msg = err?.message?.trim().orEmpty().ifBlank { "模型无回复或请求失败" }
                     return Result(false, "动作修复失败：${msg.take(320)}", step)
                 }
+
+                AutomationOverlay.updateProgress(
+                        step = step,
+                        phaseInStep = 0.72f,
+                        maxSteps = config.maxSteps,
+                        subtitle = "解析修复动作"
+                )
 
                 val (fixThinking, fixAnswer) = splitThinkingAndAnswer(fixFinal)
                 if (!fixThinking.isNullOrBlank()) {
@@ -545,6 +699,13 @@ do(action="Tap", element=[x,y])
                         "swipe", "scroll" -> 420L
                         else -> 240L
                     }
+
+            AutomationOverlay.updateProgress(
+                    step = step,
+                    phaseInStep = 0.92f,
+                    maxSteps = config.maxSteps,
+                    subtitle = "等待界面稳定"
+            )
 
             // 【历史瘦身】执行完动作后，从历史中移除图片数据，只保留文本
             // 参考 Aries AI 的 removeImagesFromLastUserMessage 策略

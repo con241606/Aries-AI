@@ -50,6 +50,31 @@ private object SharedHttpClient {
                         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
                         .build()
         }
+
+        /**
+         * 自动化场景专用：更短的超时，避免“请求模型”阶段长时间卡住。
+         * 注意：这不会让模型本身更快，但能让慢/异常连接更快失败并触发重试/降级。
+         */
+        val fastInstance: OkHttpClient by lazy {
+                val logger =
+                        HttpLoggingInterceptor().apply {
+                                level =
+                                        if (BuildConfig.DEBUG)
+                                                HttpLoggingInterceptor.Level.BASIC
+                                        else
+                                                HttpLoggingInterceptor.Level.NONE
+                        }
+                OkHttpClient.Builder()
+                        .addInterceptor(logger)
+                        .retryOnConnectionFailure(true)
+                        .connectTimeout(10, TimeUnit.SECONDS)
+                        .readTimeout(25, TimeUnit.SECONDS)
+                        .writeTimeout(25, TimeUnit.SECONDS)
+                        .callTimeout(30, TimeUnit.SECONDS)
+                        .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+                        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+                        .build()
+        }
 }
 
 /** 简化版 AutoGLM 客户端：仅用于单轮对话与 API 健康检查。 默认 BASE_URL 指向智谱官方 OpenAI 兼容接口，可根据需要调整。 */
@@ -90,6 +115,15 @@ object AutoGlmClient {
                         .create(AutoGlmService::class.java)
         }
 
+        private val fastService: AutoGlmService by lazy {
+                Retrofit.Builder()
+                        .baseUrl(BASE_URL)
+                        .client(SharedHttpClient.fastInstance)
+                        .addConverterFactory(GsonConverterFactory.create())
+                        .build()
+                        .create(AutoGlmService::class.java)
+        }
+
         suspend fun sendChatStreamResult(
                 apiKey: String,
                 messages: List<ChatRequestMessage>,
@@ -100,6 +134,13 @@ object AutoGlmClient {
                 frequencyPenalty: Float? = DEFAULT_FREQUENCY_PENALTY,
                 onReasoningDelta: (String) -> Unit,
                 onContentDelta: (String) -> Unit,
+                /**
+                 * 自动化早停：当上层已经拿到可解析的动作时可主动停止流式读取，缩短尾部等待。
+                 * 返回值仍按 success 处理（只要已收到过任意 delta）。
+                 */
+                shouldStop: (() -> Boolean)? = null,
+                /** 自动化场景可启用更短超时，避免长卡住 */
+                useFastTimeouts: Boolean = false,
         ): Result<Unit> {
                 return withContext(Dispatchers.IO) {
                         try {
@@ -128,7 +169,10 @@ object AutoGlmClient {
 
                                 var receivedAnyDelta = false
 
-                                SharedHttpClient.instance.newCall(request).execute().use { resp ->
+                                val client = if (useFastTimeouts) SharedHttpClient.fastInstance else SharedHttpClient.instance
+                                val call = client.newCall(request)
+
+                                call.execute().use { resp ->
                                         if (!resp.isSuccessful) {
                                                 val errBody =
                                                         runCatching { resp.body?.string() }.getOrNull()
@@ -145,6 +189,12 @@ object AutoGlmClient {
                                         val source = responseBody.source()
 
                                         while (!source.exhausted()) {
+                                                // 尽早响应取消/早停，避免阻塞“请求模型”阶段
+                                                if (shouldStop?.invoke() == true) {
+                                                        call.cancel()
+                                                        break
+                                                }
+
                                                 val line = source.readUtf8Line() ?: break
                                                 if (line.isBlank()) continue
                                                 if (!line.startsWith("data:")) continue
@@ -270,10 +320,13 @@ object AutoGlmClient {
                 maxTokens: Int? = DEFAULT_MAX_TOKENS,
                 topP: Float? = DEFAULT_TOP_P,
                 frequencyPenalty: Float? = DEFAULT_FREQUENCY_PENALTY,
+                /** 自动化场景可启用更短超时，避免长卡住 */
+                useFastTimeouts: Boolean = false,
         ): Result<String> {
                 return try {
+                        val svc = if (useFastTimeouts) fastService else service
                         val res =
-                                service.chat(
+                                svc.chat(
                                         auth = "Bearer $apiKey",
                                         request =
                                                 ChatRequest(

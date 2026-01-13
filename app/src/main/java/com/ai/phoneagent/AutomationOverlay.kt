@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.RectF
-import android.graphics.SweepGradient
+import android.graphics.Shader
+import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.provider.Settings
@@ -22,7 +25,6 @@ import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.Toast
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 
 object AutomationOverlay {
 
@@ -84,8 +86,8 @@ object AutomationOverlay {
             appCtx.startActivity(i)
         }
 
-        val overlayW = dp(appCtx, 115)
-        val overlayH = dp(appCtx, 115)
+        val overlayW = dp(appCtx, 108)
+        val overlayH = dp(appCtx, 108)
 
         val flags =
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -223,21 +225,32 @@ object AutomationOverlay {
         }
     }
 
+    private fun calculateProgressFraction(step: Int, phaseInStep: Float): Float {
+        val s = step.coerceAtLeast(0)
+        val curr = calculateProgressPercent(s)
+        val next = calculateProgressPercent(s + 1)
+        val t = phaseInStep.coerceIn(0f, 1f)
+        val percent = curr + ((next - curr) * t)
+        return (percent / 100f).coerceIn(0f, 1f)
+    }
+
     fun updateStep(step: Int, maxSteps: Int? = null, subtitle: String? = null) {
+        updateProgress(step = step, phaseInStep = 0f, maxSteps = maxSteps, subtitle = subtitle)
+    }
+
+    fun updateProgress(step: Int, phaseInStep: Float, maxSteps: Int? = null, subtitle: String? = null) {
         val v = container ?: return
         // 【优化】不再用 maxSteps 参数覆盖预估值
         // maxSteps 参数现在仅作为配置上限参考，不参与进度计算
         if (maxSteps != null && !hasEstimatedSteps) {
             this.maxSteps = maxSteps.coerceAtLeast(1)
         }
-        
-        val s = step.coerceAtLeast(0)
-        val percent = calculateProgressPercent(s)
-        val frac = percent / 100f
+
+        val frac = calculateProgressFraction(step = step, phaseInStep = phaseInStep)
         v.setProgress(frac)
-        
+
         val sub = subtitle?.trim().orEmpty()
-        val title = "执行中（${percent}%）"
+        val title = "执行中"
         if (sub.isNotBlank()) {
             v.setTexts(title, sub.take(34))
         } else {
@@ -299,7 +312,7 @@ object AutomationOverlay {
 
     private class OverlayContainer(context: Context) : FrameLayout(context) {
 
-        private val ring = RingView(context)
+        private val ring = EdgeFlowView(context)
         private val title = TextView(context)
         private val subtitle = TextView(context)
 
@@ -313,7 +326,7 @@ object AutomationOverlay {
         private var dragging = false
 
         init {
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(0, 0, 0, 0)
             background =
                     GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
@@ -329,6 +342,7 @@ object AutomationOverlay {
             )
 
             val textBox = FrameLayout(context)
+            textBox.setPadding(dp(10), dp(10), dp(10), dp(10))
             addView(
                     textBox,
                     LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -453,16 +467,17 @@ object AutomationOverlay {
         }
     }
 
-    private class RingView(context: Context) : View(context) {
+    private class EdgeFlowView(context: Context) : View(context) {
 
-        private val ringPaint =
+        private val trackPaint =
                 Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
                     strokeJoin = Paint.Join.ROUND
+                    color = Color.parseColor("#1F6BA8FF")
                 }
 
-        private val glowPaint =
+        private val progressPaint =
                 Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
@@ -470,19 +485,52 @@ object AutomationOverlay {
                     color = Color.parseColor("#6BA8FF")
                 }
 
-        private var progress: Float = 0f
-        private var angle = 0f
-        private var shader: SweepGradient? = null
-        private var shaderCx = Float.NaN
-        private var shaderCy = Float.NaN
-        private val shaderMatrix = Matrix()
+        private val headGlowPaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    color = Color.parseColor("#6FF2FF")
+                }
 
-        private val spinner = android.animation.ValueAnimator.ofFloat(0f, 360f).apply {
-            duration = 1600L
+        private val outerGlowPaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    color = Color.parseColor("#4CC8FF")
+                }
+
+        private val sparkOuterPaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.FILL
+                    color = Color.argb(120, 111, 242, 255)
+                }
+
+        private val sparkCorePaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.FILL
+                    color = Color.argb(230, 255, 255, 255)
+                }
+
+        private var progress: Float = 0f
+
+        private val borderPath = Path()
+        private val segmentPath = Path()
+        private val headPath = Path()
+        private var measure: PathMeasure? = null
+        private var length: Float = 0f
+
+        private var shader: Shader? = null
+        private val shaderMatrix = Matrix()
+        private var phase: Float = 0f
+
+        private val spinner = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1400L
             repeatCount = android.animation.ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             addUpdateListener {
-                angle = it.animatedValue as Float
+                phase = it.animatedValue as Float
                 invalidate()
             }
         }
@@ -525,54 +573,190 @@ object AutomationOverlay {
             super.onDetachedFromWindow()
         }
 
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            rebuildPath()
+        }
+
+        private fun rebuildPath() {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+
+            val stroke = (w.coerceAtMost(h) * 0.026f).coerceIn(dp(1.2f), dp(2.0f))
+            val pad = (stroke * 0.5f) + dp(0.8f)
+            val rect = RectF(pad, pad, w - pad, h - pad)
+            val baseR = dp(14f)
+            val r = (baseR - pad).coerceAtLeast(0f)
+                    .coerceAtMost(rect.width() / 2f)
+                    .coerceAtMost(rect.height() / 2f)
+
+            trackPaint.strokeWidth = stroke * 0.85f
+            progressPaint.strokeWidth = stroke
+            headGlowPaint.strokeWidth = stroke * 1.05f
+            outerGlowPaint.strokeWidth = stroke * 1.55f
+
+            trackPaint.alpha = 34
+            progressPaint.alpha = 170
+
+            borderPath.reset()
+            borderPath.addRoundRect(rect, r, r, Path.Direction.CW)
+            measure = PathMeasure(borderPath, true)
+            length = measure?.length ?: 0f
+
+            shader =
+                    LinearGradient(
+                            -w,
+                            0f,
+                            w * 2f,
+                            h,
+                            intArrayOf(
+                                    Color.parseColor("#1B8CFF"),
+                                    Color.parseColor("#6FF2FF"),
+                                    Color.parseColor("#E8FBFF"),
+                                    Color.parseColor("#1B8CFF")
+                            ),
+                            floatArrayOf(0f, 0.48f, 0.74f, 1f),
+                            Shader.TileMode.CLAMP
+                    )
+        }
+
+        private fun dp(v: Float): Float {
+            return TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            v,
+                            resources.displayMetrics
+                    )
+        }
+
         override fun onDraw(canvas: Canvas) {
             val w = width.toFloat()
             val h = height.toFloat()
             if (w <= 0f || h <= 0f) return
 
-            val stroke = w.coerceAtMost(h) * 0.09f
-            ringPaint.strokeWidth = stroke
-            glowPaint.strokeWidth = stroke * 1.35f
+            if (measure == null || length <= 0f) {
+                rebuildPath()
+            }
+            val pm = measure ?: return
+            val total = length
+            if (total <= 0f) return
 
-            val pad = stroke * 1.7f
-            val rect = RectF(pad, pad, w - pad, h - pad)
-            val cx = rect.centerX()
-            val cy = rect.centerY()
+            canvas.drawPath(borderPath, trackPaint)
 
-            if (shader == null || cx != shaderCx || cy != shaderCy) {
-                shader =
-                        SweepGradient(
-                                cx,
-                                cy,
-                                intArrayOf(
-                                        Color.parseColor("#6BA8FF"),
-                                        Color.parseColor("#6FF2FF"),
-                                        Color.parseColor("#6BA8FF"),
-                                        Color.parseColor("#FF7AD9"),
-                                        Color.parseColor("#6BA8FF")
-                                ),
-                                floatArrayOf(0f, 0.35f, 0.58f, 0.82f, 1f)
-                        )
-                shaderCx = cx
-                shaderCy = cy
+            val p = progress.coerceIn(0f, 1f)
+            val end = total * p
+            val headLen = (total * 0.045f).coerceIn(dp(6f), dp(12f))
+
+            if (end <= dp(0.5f)) {
+                // 进度几乎为 0：显示一段沿边缘流动的细流光（不填充进度）
+                val center = total * phase
+                val start = center - (headLen * 0.55f)
+                val stop = center + (headLen * 0.45f)
+
+                fun drawGlowSeg(from: Float, to: Float) {
+                    headPath.reset()
+                    pm.getSegment(from.coerceIn(0f, total), to.coerceIn(0f, total), headPath, true)
+                    val pulse =
+                            (0.55f +
+                                            0.45f *
+                                                    kotlin.math.abs(
+                                                            kotlin.math.sin(phase * 6.2831853f)
+                                                    ))
+                                    .coerceIn(0f, 1f)
+                    headGlowPaint.alpha = (120 + 120 * pulse).toInt().coerceIn(0, 255)
+                    outerGlowPaint.alpha = (35 + 55 * pulse).toInt().coerceIn(0, 120)
+                    shader?.let {
+                        shaderMatrix.reset()
+                        shaderMatrix.setTranslate(w * (phase - 0.5f), h * (0.5f - phase))
+                        it.setLocalMatrix(shaderMatrix)
+                        outerGlowPaint.shader = it
+                        headGlowPaint.shader = it
+                    }
+                    canvas.drawPath(headPath, outerGlowPaint)
+                    canvas.drawPath(headPath, headGlowPaint)
+                    headGlowPaint.shader = null
+                    outerGlowPaint.shader = null
+                }
+
+                if (start >= 0f && stop <= total) {
+                    drawGlowSeg(start, stop)
+                } else {
+                    val s = (start % total + total) % total
+                    val t = (stop % total + total) % total
+                    if (s <= total) drawGlowSeg(s, total)
+                    if (t >= 0f) drawGlowSeg(0f, t)
+                }
+
+                val sparkD = ((center % total) + total) % total
+                val pos = FloatArray(2)
+                pm.getPosTan(sparkD, pos, null)
+                val pulse =
+                        (0.55f +
+                                        0.45f *
+                                                kotlin.math.abs(
+                                                        kotlin.math.sin(phase * 6.2831853f)
+                                                ))
+                                .coerceIn(0f, 1f)
+                sparkOuterPaint.alpha = (55 + (85 * pulse)).toInt().coerceIn(0, 160)
+                sparkCorePaint.alpha = (190 + (65 * pulse)).toInt().coerceIn(0, 255)
+                canvas.drawCircle(pos[0], pos[1], dp(2.2f), sparkOuterPaint)
+                canvas.drawCircle(pos[0], pos[1], dp(1.1f), sparkCorePaint)
+            } else {
+                segmentPath.reset()
+                pm.getSegment(0f, end, segmentPath, true)
+                shader?.let {
+                    shaderMatrix.reset()
+                    shaderMatrix.setTranslate(w * (phase - 0.5f) * 1.1f, h * (0.5f - phase) * 1.1f)
+                    it.setLocalMatrix(shaderMatrix)
+                    progressPaint.shader = it
+                }
+                canvas.drawPath(segmentPath, progressPaint)
+                progressPaint.shader = null
+
+                val headStart = (end - headLen).coerceAtLeast(0f)
+                headPath.reset()
+                pm.getSegment(headStart, end, headPath, true)
+
+                val glowA = (completeAnim?.animatedValue as? Float) ?: 0f
+                val pulse =
+                        (0.55f +
+                                        0.45f *
+                                                kotlin.math.abs(
+                                                        kotlin.math.sin(phase * 6.2831853f)
+                                                ))
+                                .coerceIn(0f, 1f)
+                val alphaBase = (85 + 160 * pulse).toInt().coerceIn(0, 255)
+                val coreA = (alphaBase + (70 * glowA).toInt()).coerceIn(0, 255)
+                val outerA = (30 + (70 * pulse)).toInt().coerceIn(0, 120)
+
+                outerGlowPaint.alpha = outerA
+                headGlowPaint.alpha = coreA
+                shader?.let {
+                    shaderMatrix.reset()
+                    shaderMatrix.setTranslate(w * (phase - 0.5f), h * (0.5f - phase))
+                    it.setLocalMatrix(shaderMatrix)
+                    outerGlowPaint.shader = it
+                    headGlowPaint.shader = it
+                }
+                canvas.drawPath(headPath, outerGlowPaint)
+                canvas.drawPath(headPath, headGlowPaint)
+                headGlowPaint.shader = null
+                outerGlowPaint.shader = null
+
+                val pos = FloatArray(2)
+                pm.getPosTan(end.coerceIn(0f, total), pos, null)
+                sparkOuterPaint.alpha = (70 + (90 * pulse)).toInt().coerceIn(0, 170)
+                sparkCorePaint.alpha = (205 + (50 * pulse)).toInt().coerceIn(0, 255)
+                canvas.drawCircle(pos[0], pos[1], dp(2.2f), sparkOuterPaint)
+                canvas.drawCircle(pos[0], pos[1], dp(1.1f), sparkCorePaint)
             }
 
-            shaderMatrix.reset()
-            shaderMatrix.setRotate(angle, cx, cy)
-            shader?.setLocalMatrix(shaderMatrix)
-            ringPaint.shader = shader
-
-            val startAngle = -90f
-            val sweep = 360f * progress.coerceIn(0f, 1f)
-
-            val glowA = (completeAnim?.animatedValue as? Float) ?: 0f
-            if (glowA > 0f) {
-                val a = (40 + (180 * glowA)).toInt().coerceIn(0, 255)
-                glowPaint.color = Color.argb(a, 107, 168, 255)
-                canvas.drawArc(rect, 0f, 360f, false, glowPaint)
+            val ca = (completeAnim?.animatedValue as? Float) ?: 0f
+            if (ca > 0f) {
+                val a = (40 + (170 * ca)).toInt().coerceIn(0, 255)
+                headGlowPaint.alpha = a
+                canvas.drawPath(borderPath, headGlowPaint)
             }
-
-            canvas.drawArc(rect, startAngle, sweep, false, ringPaint)
         }
     }
 }
