@@ -327,15 +327,23 @@ class AboutActivity : AppCompatActivity() {
         tvBody.text = entry.body.ifBlank { "（无更新说明）" }
 
         rvLinks.layoutManager = LinearLayoutManager(this)
-        rvLinks.adapter =
-            UpdateLinkAdapter(
-                items = links,
-                onOpen = { ReleaseUiUtil.openUrl(this, it) },
-                onCopy = {
-                    copyToClipboard(it)
-                    Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show()
-                },
-            )
+
+        lifecycleScope.launch {
+            val checked =
+                runCatching {
+                    withContext(Dispatchers.IO) { ReleaseUiUtil.mirroredDownloadOptionsChecked(entry.apkUrl) }
+                }.getOrNull()
+            val finalLinks = checked?.takeIf { it.isNotEmpty() } ?: links
+            rvLinks.adapter =
+                UpdateLinkAdapter(
+                    items = finalLinks,
+                    onOpen = { ReleaseUiUtil.openUrl(this@AboutActivity, it) },
+                    onCopy = {
+                        copyToClipboard(it)
+                        Toast.makeText(this@AboutActivity, "链接已复制", Toast.LENGTH_SHORT).show()
+                    },
+                )
+        }
 
         fun exitDialog() {
             vibrateLight()
@@ -466,21 +474,80 @@ class AboutActivity : AppCompatActivity() {
             License("AndroidX ConstraintLayout", "Flexible layout manager", "Apache-2.0"),
         )
 
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_licenses, null, false)
-        val container = view.findViewById<LinearLayout>(R.id.licenseContainer)
-
-        licenses.forEach { lic ->
-            val row = layoutInflater.inflate(R.layout.item_license_row, container, false)
-            row.findViewById<TextView>(R.id.tvLibName).text = lic.name
-            row.findViewById<TextView>(R.id.tvLibDesc).text = lic.description
-            row.findViewById<TextView>(R.id.tvLibLicense).text = "许可: ${lic.license}"
-            container.addView(row)
+        val body = licenses.joinToString("\n\n") { lic ->
+            "${lic.name}\n${lic.description}\n许可: ${lic.license}"
         }
 
-        MaterialAlertDialogBuilder(this, R.style.BlueGlassAlertDialog)
-            .setView(view)
-            .setPositiveButton("确定", null)
-            .show()
+        showSimpleSlideDialog(
+            title = "开源许可声明",
+            subtitle = "本项目使用的第三方库",
+            body = body,
+        )
+    }
+
+    private fun showSimpleSlideDialog(title: String, subtitle: String, body: String) {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val containerView = layoutInflater.inflate(R.layout.dialog_update_links, null)
+        dialog.setContentView(containerView)
+
+        val cardView = containerView.findViewById<View>(R.id.dialogCard)
+
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            window.setDimAmount(0f)
+            window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            val params = window.attributes
+            params.windowAnimations = 0
+            window.attributes = params
+        }
+
+        val tvTitle = containerView.findViewById<TextView>(R.id.tvTitle)
+        val tvSubtitle = containerView.findViewById<TextView>(R.id.tvSubtitle)
+        val tvBody = containerView.findViewById<TextView>(R.id.tvBody)
+        val rvLinks = containerView.findViewById<RecyclerView>(R.id.rvLinks)
+
+        tvTitle.text = title
+        tvSubtitle.text = subtitle
+        tvBody.text = body
+
+        rvLinks.visibility = View.GONE
+        containerView.findViewById<View>(R.id.btnHistory).visibility = View.GONE
+        containerView.findViewById<View>(R.id.btnOpenRelease).visibility = View.GONE
+
+        fun exitDialog() {
+            vibrateLight()
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { dialog.dismiss() }
+                .start()
+        }
+
+        containerView.findViewById<View>(R.id.btnClose).setOnClickListener { exitDialog() }
+        containerView.setOnClickListener { exitDialog() }
+        cardView.setOnClickListener { }
+
+        dialog.show()
+
+        cardView.post {
+            cardView.translationY = -cardView.height.toFloat() * 1.5f
+            cardView.alpha = 0f
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(600)
+                .setInterpolator(OvershootInterpolator(1.1f))
+                .start()
+        }
     }
 
     private fun copyToClipboard(text: String) {

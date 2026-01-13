@@ -578,7 +578,7 @@ object ToolRegistration {
                                 toolName = tool.name,
                                 success = success,
                                 result = UIActionResultData("scroll_to_element", success, "滚动查找: $selector ($direction)"),
-                                message = if (success) "成功找到并滚动到元素" else "未能找到目标元素"
+                                error = if (success) "" else "未能找到目标元素"
                             )
                         }
                     }

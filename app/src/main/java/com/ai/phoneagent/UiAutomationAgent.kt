@@ -15,7 +15,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class UiAutomationAgent(
         private val config: Config = Config(),
@@ -220,6 +222,10 @@ class UiAutomationAgent(
         val thinkingBuilder = StringBuilder()
         val contentBuilder = StringBuilder()
         var hasCompleteAction = false
+        var lastThinkingUpdateTime = System.currentTimeMillis()
+        val thinkingTimeoutMs = 30_000L // 30秒无新思考内容则超时
+        val maxTotalTimeMs = 60_000L // 最多等待60秒
+        val startTime = System.currentTimeMillis()
         
         // 检测是否已获取完整动作（用于早停）
         fun checkCompleteAction(text: String): Boolean {
@@ -229,32 +235,56 @@ class UiAutomationAgent(
             return doMatch != null || finishMatch != null
         }
         
-        val result = withContext(Dispatchers.IO) {
-            AutoGlmClient.sendChatStreamResult(
-                apiKey = apiKey,
-                messages = messages,
-                model = model,
-                temperature = config.temperature,
-                maxTokens = config.maxTokens,
-                topP = config.topP,
-                frequencyPenalty = config.frequencyPenalty,
-                onReasoningDelta = { delta ->
-                    thinkingBuilder.append(delta)
-                    onThinkingDelta(delta)
-                },
-                onContentDelta = { delta ->
-                    contentBuilder.append(delta)
-                    // 检测是否已获取完整动作
-                    if (!hasCompleteAction && checkCompleteAction(contentBuilder.toString())) {
-                        hasCompleteAction = true
-                    }
-                },
-                shouldStop = { hasCompleteAction },
-                useFastTimeouts = true,
-            )
+        val result = try {
+            withTimeoutOrNull(maxTotalTimeMs) {
+                withContext(Dispatchers.IO) {
+                    AutoGlmClient.sendChatStreamResult(
+                        apiKey = apiKey,
+                        messages = messages,
+                        model = model,
+                        temperature = config.temperature,
+                        maxTokens = config.maxTokens,
+                        topP = config.topP,
+                        frequencyPenalty = config.frequencyPenalty,
+                        onReasoningDelta = { delta ->
+                            thinkingBuilder.append(delta)
+                            lastThinkingUpdateTime = System.currentTimeMillis()
+                            onThinkingDelta(delta)
+                        },
+                        onContentDelta = { delta ->
+                            contentBuilder.append(delta)
+                            // 检测是否已获取完整动作
+                            if (!hasCompleteAction && checkCompleteAction(contentBuilder.toString())) {
+                                hasCompleteAction = true
+                            }
+                        },
+                        shouldStop = { 
+                            hasCompleteAction || 
+                            (System.currentTimeMillis() - lastThinkingUpdateTime > thinkingTimeoutMs)
+                        },
+                        useFastTimeouts = true,
+                    )
+                }
+            }
+        } catch (e: CancellationException) {
+            // 若被外部取消，但已经有部分响应，则允许后续使用部分内容
+            onLog("[Step $step] 流式请求被取消（可能用户中止），将尝试使用已获取内容")
+            null
+        } catch (e: Exception) {
+            onLog("[Step $step] 流式请求异常：${e.message.orEmpty().take(200)}")
+            null
         }
         
-        if (result.isFailure) {
+        if (result == null) {
+            // 超时或取消：若有部分内容则继续，否则失败
+            if (contentBuilder.isNotEmpty() || thinkingBuilder.isNotEmpty()) {
+                onLog("[Step $step] 模型请求超时/取消，使用已获取的部分内容")
+            } else {
+                return kotlin.Result.failure(IOException("Streaming timeout/cancel after ${System.currentTimeMillis() - startTime}ms"))
+            }
+        }
+
+        if (result != null && result.isFailure) {
             return kotlin.Result.failure(result.exceptionOrNull() ?: IOException("Streaming failed"))
         }
         
@@ -352,12 +382,12 @@ do(action="Tap", element=[x,y])
 
 只输出上述格式之一，不要输出其他任何文字。"""
 
-            // 修复时只使用最近的消息，避免上下文过长
-            val repairHistory = mutableListOf<ChatRequestMessage>()
-            history.firstOrNull { it.role == "system" }?.let { repairHistory.add(it) }
-            // 只保留最后一条用户消息
-            history.lastOrNull { it.role == "user" }?.let { repairHistory.add(it) }
-            repairHistory.add(ChatRequestMessage(role = "user", content = repairMsg))
+                // 修复时回到简单模式：只用system + 最后一条user消息 + 修正指令
+                val repairHistory = mutableListOf<ChatRequestMessage>()
+                history.firstOrNull { it.role == "system" }?.let { repairHistory.add(it) }
+                // 只保留最后一条用户消息
+                history.lastOrNull { it.role == "user" }?.let { repairHistory.add(it) }
+                repairHistory.add(ChatRequestMessage(role = "user", content = repairMsg))
 
             val repairResult =
                     requestModelWithRetry(
@@ -579,39 +609,27 @@ do(action="Tap", element=[x,y])
                     subtitle = "请求模型"
             )
             
-            // ⚡ 性能优化：使用流式API + 早停
-            // 当检测到完整动作时立即停止读取，可节省0.5-2秒
+            // 启动流式思考显示
+            AutomationOverlay.startThinking()
+            
+            // 【重要】禁用流式：之前的流式实现存在致命缺陷
+            // 问题：早停条件导致内容不完整 → 触发回退 → 原流式协程仍继续运行 → 两个请求并行 → 协程状态混乱
+            // 解决：直接用稳定的非流式请求，牺牲<1秒时间换取稳定性
             var streamedThinking = ""
-            val replyResult = if (config.useStreamingWithEarlyStop) {
-                requestModelStreamingWithEarlyStop(
-                    apiKey = apiKey,
-                    model = model,
-                    messages = history,
-                    step = step,
-                    onLog = onLog,
-                    onThinkingDelta = { delta ->
-                        streamedThinking += delta
-                        // 实时更新进度显示
-                        AutomationOverlay.updateThinking(delta)
-                        AutomationOverlay.updateProgress(
-                            step = step,
-                            phaseInStep = 0.35f,
-                            maxSteps = config.maxSteps,
-                            subtitle = "思考中…"
-                        )
-                    },
-                )
-            } else {
-                requestModelWithRetry(
-                    apiKey = apiKey,
-                    model = model,
-                    messages = history,
-                    step = step,
-                    purpose = "请求模型",
-                    onLog = onLog,
-                )
-            }
+            val replyResult = requestModelWithRetry(
+                apiKey = apiKey,
+                model = model,
+                messages = history,
+                step = step,
+                purpose = "请求模型",
+                onLog = onLog,
+            )
+
             val finalReply = replyResult.getOrNull()?.trim().orEmpty()
+            
+            // 停止流式思考显示
+            AutomationOverlay.stopThinking()
+            
             if (finalReply.isBlank()) {
                 val err = replyResult.exceptionOrNull()
                 val msg = err?.message?.trim().orEmpty().ifBlank { "模型无回复或请求失败" }

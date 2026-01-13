@@ -218,17 +218,34 @@ class MainActivity : AppCompatActivity() {
     private fun silentCheckUpdatesOnLaunch() {
         val now = System.currentTimeMillis()
         val intervalMs = 6L * 60L * 60L * 1000L
-        if (!UpdateStore.shouldSilentCheck(this, nowMs = now, intervalMs = intervalMs)) return
-
-        // 先打点，避免频繁启动/重建时重复请求
-        UpdateStore.markSilentChecked(this, nowMs = now)
-
         val currentVersion =
                 try {
                     packageManager.getPackageInfo(packageName, 0).versionName ?: ""
                 } catch (_: Exception) {
                     ""
                 }
+
+        // 1) 先用缓存快速提示（不依赖网络）
+        val cached = UpdateStore.loadLatest(this)
+        if (cached != null) {
+            val newerCached = VersionComparator.compare(cached.version, currentVersion) > 0
+            if (newerCached && UpdateStore.shouldNotify(this, cached.versionTag)) {
+                val posted = UpdateNotificationUtil.notifyNewVersion(this, cached)
+                if (posted) {
+                    UpdateStore.markNotified(this, cached.versionTag)
+                } else {
+                    Toast.makeText(this, "发现新版本 ${cached.versionTag}（通知权限未授予）", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        // 2) 再决定是否进行网络检查
+        val needNetworkCheck =
+            UpdateStore.shouldSilentCheck(this, nowMs = now, intervalMs = intervalMs)
+        if (!needNetworkCheck) return
+
+        // 先打点，避免频繁启动/重建时重复请求
+        UpdateStore.markSilentChecked(this, nowMs = now)
 
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -248,6 +265,8 @@ class MainActivity : AppCompatActivity() {
                     val posted = UpdateNotificationUtil.notifyNewVersion(this@MainActivity, latest)
                     if (posted) {
                         UpdateStore.markNotified(this@MainActivity, latest.versionTag)
+                    } else {
+                        Toast.makeText(this@MainActivity, "发现新版本 ${latest.versionTag}（通知权限未授予）", Toast.LENGTH_LONG).show()
                     }
                 }
                 .onFailure {

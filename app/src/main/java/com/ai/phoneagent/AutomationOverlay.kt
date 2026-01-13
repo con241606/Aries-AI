@@ -211,7 +211,7 @@ object AutomationOverlay {
         val v = container ?: return
         isShowingThinking = true
         thinkingText = ""
-        v.setTexts("思考中", "正在分析问题...")
+        v.setTexts("思考中", "等待界面稳定...")
     }
     
     /**
@@ -220,19 +220,22 @@ object AutomationOverlay {
      */
     fun updateThinking(delta: String) {
         if (!isShowingThinking) return
-        val v = container ?: return
+        val v = container
+        if (v == null) {
+            Log.w("AutomationOverlay", "Container is null in updateThinking, attempting to restore")
+            isShowingThinking = false
+            return
+        }
         
         thinkingText += delta
         
-        // 提取有意义的关键词显示
-        val meaningfulText = extractMeaningfulThinking(thinkingText)
-        val displayText = if (meaningfulText.isNotBlank()) {
-            meaningfulText.take(30) + if (meaningfulText.length > 30) "..." else ""
-        } else {
-            "正在思考..."
+        // 实时提取并显示关键思考信息
+        val displayText = extractRealtimeThinking(thinkingText)
+        try {
+            v.setTexts("思考中", displayText)
+        } catch (e: Exception) {
+            Log.w("AutomationOverlay", "Failed to update thinking display: ${e.message}")
         }
-        
-        v.setTexts("思考中", displayText)
     }
     
     /**
@@ -244,7 +247,40 @@ object AutomationOverlay {
     }
     
     /**
-     * 从思考文本中提取有意义的关键信息
+     * 实时提取关键思考信息（优先显示最新的分析步骤）
+     */
+    private fun extractRealtimeThinking(thinking: String): String {
+        val text = thinking.trim()
+        if (text.isBlank()) return "等待界面稳定..."
+        
+        // 关键词列表（按优先级排序）
+        val keywordPatterns = listOf(
+            "需要", "应该", "点击", "输入", "滚动", "等待", "打开", "找到", "看到",
+            "验证", "检查", "分析", "确认", "选择", "搜索", "返回", "关闭", "长按",
+            "向", "拖动", "位置", "内容", "信息", "用户", "页面", "按钮", "输入框"
+        )
+        
+        // 策略1：找到最新的包含关键词的部分（从后向前扫描）
+        for (keyword in keywordPatterns) {
+            val lastIndex = text.lastIndexOf(keyword)
+            if (lastIndex >= 0) {
+                // 提取关键词及其后的内容，最多30字
+                val startIdx = maxOf(0, lastIndex - 5)  // 向前多取5个字，获得上下文
+                val endIdx = minOf(text.length, lastIndex + 20)
+                val segment = text.substring(startIdx, endIdx).trim()
+                if (segment.length > 2) {
+                    return segment
+                }
+            }
+        }
+        
+        // 策略2：如果没有关键词，显示最后的30字
+        val lastPart = text.takeLast(30).trim()
+        return if (lastPart.isNotEmpty()) lastPart else "分析中..."
+    }
+
+    /**
+     * 从思考文本中提取有意义的关键信息（保留用于其他用途）
      */
     private fun extractMeaningfulThinking(thinking: String): String {
         val text = thinking.trim()
