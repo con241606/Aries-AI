@@ -75,15 +75,6 @@
                     android:lineSpacingExtra="3dp" />
             </ScrollView>
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="下载链接（镜像从上到下）"
-                android:textColor="#1B2B3D"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="8dp" />
-
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rvLinks"
                 android:layout_width="match_parent"

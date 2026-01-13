@@ -14,6 +14,7 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -38,6 +39,7 @@ import com.ai.phoneagent.updates.UpdateStore
 import com.ai.phoneagent.updates.ReleaseUiUtil
 import com.ai.phoneagent.updates.UpdateHistoryActivity
 import com.ai.phoneagent.updates.VersionComparator
+import com.ai.phoneagent.updates.DialogSizingUtil
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.switchmaterial.SwitchMaterial
 import kotlinx.coroutines.Dispatchers
@@ -204,22 +206,68 @@ class AboutActivity : AppCompatActivity() {
     }
 
     private fun showReleaseHistoryDialog() {
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_release_history, null, false)
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val containerView = layoutInflater.inflate(R.layout.dialog_update_links, null)
+        dialog.setContentView(containerView)
 
-        val tvTips = view.findViewById<TextView>(R.id.tvTips)
+        val cardView = containerView.findViewById<View>(R.id.dialogCard)
+
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            window.setDimAmount(0f)
+            window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            val params = window.attributes
+            params.windowAnimations = 0
+            window.attributes = params
+        }
+
+        val tvTitle = containerView.findViewById<TextView>(R.id.tvTitle)
+        val tvSubtitle = containerView.findViewById<TextView>(R.id.tvSubtitle)
+        val tvBody = containerView.findViewById<TextView>(R.id.tvBody)
+        val rvLinks = containerView.findViewById<RecyclerView>(R.id.rvLinks)
+        val scrollBody = containerView.findViewById<View>(R.id.scrollBody)
+
+        tvTitle.text = "更新日志"
+        tvSubtitle.text = "${UpdateConfig.REPO_OWNER}/${UpdateConfig.REPO_NAME}"
+        tvBody.text = ""
+        scrollBody.visibility = View.GONE
+        rvLinks.visibility = View.GONE
+
+        containerView.findViewById<View>(R.id.btnOpenRelease).visibility = View.GONE
+        containerView.findViewById<View>(R.id.btnHistory).visibility = View.GONE
+
+        val historyView = LayoutInflater.from(this).inflate(R.layout.dialog_release_history, null, false)
+        val container = (rvLinks.parent as? ViewGroup)
+        container?.addView(
+            historyView,
+            container.indexOfChild(rvLinks)
+        )
+
+        val tvTips = historyView.findViewById<TextView>(R.id.tvTips)
         tvTips.text = "下方可以选择历史版本"
 
-        val switchPrerelease = view.findViewById<SwitchMaterial>(R.id.switchPrerelease)
-        val progress = view.findViewById<ProgressBar>(R.id.progress)
-        val tvError = view.findViewById<TextView>(R.id.tvError)
-        val recycler = view.findViewById<RecyclerView>(R.id.recyclerReleases)
+        val switchPrerelease = historyView.findViewById<SwitchMaterial>(R.id.switchPrerelease)
+        val progress = historyView.findViewById<ProgressBar>(R.id.progress)
+        val tvError = historyView.findViewById<TextView>(R.id.tvError)
+        val recycler = historyView.findViewById<RecyclerView>(R.id.recyclerReleases)
 
         recycler.layoutManager = LinearLayoutManager(this)
 
+        DialogSizingUtil.applyCompactSizing(
+            context = this,
+            cardView = cardView,
+            scrollBody = null,
+            listView = recycler,
+            hasList = true,
+        )
+
         var includePrerelease = false
         var loaded: List<ReleaseEntry> = emptyList()
-
-        lateinit var dialog: androidx.appcompat.app.AlertDialog
 
         val adapter =
             ReleaseHistoryAdapter(
@@ -240,14 +288,35 @@ class AboutActivity : AppCompatActivity() {
             applyFilter()
         }
 
+        fun exitDialog() {
+            vibrateLight()
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { dialog.dismiss() }
+                .start()
+        }
 
-        dialog =
-            MaterialAlertDialogBuilder(this, R.style.BlueGlassAlertDialog)
-                .setView(view)
-                .setPositiveButton("关闭", null)
-                .create()
+        containerView.findViewById<View>(R.id.btnClose).setOnClickListener { exitDialog() }
+        containerView.setOnClickListener { exitDialog() }
+        cardView.setOnClickListener { }
 
         dialog.show()
+
+        cardView.post {
+            cardView.translationY = -cardView.height.toFloat() * 1.5f
+            cardView.alpha = 0f
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(600)
+                .setInterpolator(OvershootInterpolator(1.1f))
+                .start()
+        }
 
         tvError.visibility = View.GONE
         progress.visibility = View.VISIBLE
@@ -321,29 +390,31 @@ class AboutActivity : AppCompatActivity() {
         val tvSubtitle = containerView.findViewById<TextView>(R.id.tvSubtitle)
         val tvBody = containerView.findViewById<TextView>(R.id.tvBody)
         val rvLinks = containerView.findViewById<RecyclerView>(R.id.rvLinks)
+        val scrollBody = containerView.findViewById<View>(R.id.scrollBody)
 
         tvTitle.text = "发现新版本 ${entry.versionTag}"
         tvSubtitle.text = "${UpdateConfig.REPO_OWNER}/${UpdateConfig.REPO_NAME}  •  ${UpdateConfig.APK_ASSET_NAME}"
         tvBody.text = entry.body.ifBlank { "（无更新说明）" }
 
+        DialogSizingUtil.applyCompactSizing(
+            context = this,
+            cardView = cardView,
+            scrollBody = scrollBody,
+            listView = rvLinks,
+            hasList = true,
+        )
+
         rvLinks.layoutManager = LinearLayoutManager(this)
 
-        lifecycleScope.launch {
-            val checked =
-                runCatching {
-                    withContext(Dispatchers.IO) { ReleaseUiUtil.mirroredDownloadOptionsChecked(entry.apkUrl) }
-                }.getOrNull()
-            val finalLinks = checked?.takeIf { it.isNotEmpty() } ?: links
-            rvLinks.adapter =
-                UpdateLinkAdapter(
-                    items = finalLinks,
-                    onOpen = { ReleaseUiUtil.openUrl(this@AboutActivity, it) },
-                    onCopy = {
-                        copyToClipboard(it)
-                        Toast.makeText(this@AboutActivity, "链接已复制", Toast.LENGTH_SHORT).show()
-                    },
-                )
-        }
+        rvLinks.adapter =
+            UpdateLinkAdapter(
+                items = links,
+                onOpen = { ReleaseUiUtil.openUrl(this@AboutActivity, it) },
+                onCopy = {
+                    copyToClipboard(it)
+                    Toast.makeText(this@AboutActivity, "链接已复制", Toast.LENGTH_SHORT).show()
+                },
+            )
 
         fun exitDialog() {
             vibrateLight()
@@ -510,10 +581,19 @@ class AboutActivity : AppCompatActivity() {
         val tvSubtitle = containerView.findViewById<TextView>(R.id.tvSubtitle)
         val tvBody = containerView.findViewById<TextView>(R.id.tvBody)
         val rvLinks = containerView.findViewById<RecyclerView>(R.id.rvLinks)
+        val scrollBody = containerView.findViewById<View>(R.id.scrollBody)
 
         tvTitle.text = title
         tvSubtitle.text = subtitle
         tvBody.text = body
+
+        DialogSizingUtil.applyCompactSizing(
+            context = this,
+            cardView = cardView,
+            scrollBody = scrollBody,
+            listView = null,
+            hasList = false,
+        )
 
         rvLinks.visibility = View.GONE
         containerView.findViewById<View>(R.id.btnHistory).visibility = View.GONE

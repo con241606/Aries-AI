@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
+import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -53,9 +54,14 @@ import com.ai.phoneagent.databinding.ActivityMainBinding
 import com.ai.phoneagent.net.AutoGlmClient
 import com.ai.phoneagent.net.ChatRequestMessage
 import com.ai.phoneagent.updates.ReleaseRepository
+import com.ai.phoneagent.updates.ReleaseEntry
+import com.ai.phoneagent.updates.ReleaseUiUtil
+import com.ai.phoneagent.updates.UpdateConfig
+import com.ai.phoneagent.updates.UpdateLinkAdapter
 import com.ai.phoneagent.updates.UpdateNotificationUtil
 import com.ai.phoneagent.updates.UpdateStore
 import com.ai.phoneagent.updates.VersionComparator
+import com.ai.phoneagent.updates.DialogSizingUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -230,6 +236,8 @@ class MainActivity : AppCompatActivity() {
         if (cached != null) {
             val newerCached = VersionComparator.compare(cached.version, currentVersion) > 0
             if (newerCached && UpdateStore.shouldNotify(this, cached.versionTag)) {
+                showUpdateLinksDialog(cached)
+
                 val posted = UpdateNotificationUtil.notifyNewVersion(this, cached)
                 if (posted) {
                     UpdateStore.markNotified(this, cached.versionTag)
@@ -262,6 +270,8 @@ class MainActivity : AppCompatActivity() {
 
                     if (!UpdateStore.shouldNotify(this@MainActivity, latest.versionTag)) return@onSuccess
 
+                    showUpdateLinksDialog(latest)
+
                     val posted = UpdateNotificationUtil.notifyNewVersion(this@MainActivity, latest)
                     if (posted) {
                         UpdateStore.markNotified(this@MainActivity, latest.versionTag)
@@ -272,6 +282,103 @@ class MainActivity : AppCompatActivity() {
                 .onFailure {
                     // 静默检查：不打扰用户
                 }
+        }
+    }
+
+    private fun showUpdateLinksDialog(entry: ReleaseEntry) {
+        val options = ReleaseUiUtil.mirroredDownloadOptions(entry.apkUrl)
+        val links = if (options.isNotEmpty()) options else listOf("发布页" to entry.releaseUrl)
+
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val containerView = layoutInflater.inflate(R.layout.dialog_update_links, null)
+        dialog.setContentView(containerView)
+
+        val cardView = containerView.findViewById<View>(R.id.dialogCard)
+
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            window.setDimAmount(0f)
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            )
+            val params = window.attributes
+            params.windowAnimations = 0
+            window.attributes = params
+        }
+
+        val tvTitle = containerView.findViewById<TextView>(R.id.tvTitle)
+        val tvSubtitle = containerView.findViewById<TextView>(R.id.tvSubtitle)
+        val tvBody = containerView.findViewById<TextView>(R.id.tvBody)
+        val rvLinks = containerView.findViewById<RecyclerView>(R.id.rvLinks)
+        val scrollBody = containerView.findViewById<View>(R.id.scrollBody)
+
+        tvTitle.text = "发现新版本 ${entry.versionTag}"
+        tvSubtitle.text = "${UpdateConfig.REPO_OWNER}/${UpdateConfig.REPO_NAME}  •  ${UpdateConfig.APK_ASSET_NAME}"
+        tvBody.text = entry.body.ifBlank { "（无更新说明）" }
+
+        DialogSizingUtil.applyCompactSizing(
+            context = this,
+            cardView = cardView,
+            scrollBody = scrollBody,
+            listView = rvLinks,
+            hasList = true,
+        )
+
+        rvLinks.layoutManager = LinearLayoutManager(this)
+        rvLinks.adapter =
+            UpdateLinkAdapter(
+                items = links,
+                onOpen = { ReleaseUiUtil.openUrl(this@MainActivity, it) },
+                onCopy = {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("text", it))
+                    Toast.makeText(this@MainActivity, "链接已复制", Toast.LENGTH_SHORT).show()
+                },
+            )
+
+        fun exitDialog() {
+            vibrateLight()
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { dialog.dismiss() }
+                .start()
+        }
+
+        containerView.findViewById<View>(R.id.btnClose).setOnClickListener { exitDialog() }
+        containerView.setOnClickListener { exitDialog() }
+        cardView.setOnClickListener { }
+
+        containerView.findViewById<View>(R.id.btnOpenRelease).setOnClickListener {
+            exitDialog()
+            ReleaseUiUtil.openUrl(this, entry.releaseUrl)
+        }
+        containerView.findViewById<View>(R.id.btnHistory).setOnClickListener {
+            exitDialog()
+            startActivity(Intent(this, AboutActivity::class.java))
+        }
+
+        dialog.show()
+
+        cardView.post {
+            cardView.translationY = -cardView.height.toFloat() * 1.5f
+            cardView.alpha = 0f
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(600)
+                .setInterpolator(OvershootInterpolator(1.1f))
+                .start()
         }
     }
 
