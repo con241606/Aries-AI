@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 import android.view.animation.OvershootInterpolator
+import android.text.Html
 import android.view.animation.AccelerateInterpolator
 import android.annotation.SuppressLint
 import android.view.MotionEvent
@@ -156,6 +157,7 @@ class AboutActivity : AppCompatActivity() {
         // 应用点击缩放动效
         applySpringScaleEffect(binding.btnCheckUpdate)
         applySpringScaleEffect(binding.itemChangelog)
+        applySpringScaleEffect(binding.itemUserAgreement)
         applySpringScaleEffect(binding.itemLicenses)
         applySpringScaleEffect(binding.itemDeveloper)
         applySpringScaleEffect(binding.itemContact)
@@ -181,6 +183,12 @@ class AboutActivity : AppCompatActivity() {
             showChangelogDialog()
         }
 
+        // 用户协议与隐私政策
+        binding.itemUserAgreement.setOnClickListener {
+            vibrateLight()
+            showUserAgreementDialog()
+        }
+
         // 开源许可声明
         binding.itemLicenses.setOnClickListener {
             vibrateLight()
@@ -199,6 +207,44 @@ class AboutActivity : AppCompatActivity() {
             vibrateLight()
             Toast.makeText(this, "感谢使用 Aries AI！", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showUserAgreementDialog() {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialogBinding = com.ai.phoneagent.databinding.DialogUserAgreementBinding.inflate(layoutInflater)
+        dialog.setContentView(dialogBinding.root)
+        
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            val width = (resources.displayMetrics.widthPixels * 0.88).toInt()
+            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+            window.attributes.windowAnimations = android.R.style.Animation_Dialog
+        }
+
+        // 应用自适应高度
+        DialogSizingUtil.applyCompactSizing(
+            this,
+            dialogBinding.cardAgreement,
+            dialogBinding.scrollAgreement,
+            null,
+            false
+        )
+
+        val content = getString(R.string.user_agreement_content)
+        dialogBinding.tvAgreementContent.text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Html.fromHtml(content, Html.FROM_HTML_MODE_COMPACT)
+        } else {
+            @Suppress("DEPRECATION")
+            Html.fromHtml(content)
+        }
+
+        dialogBinding.btnAgreementAgree.text = "返回"
+        dialogBinding.btnAgreementAgree.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     private fun showChangelogDialog() {

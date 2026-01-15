@@ -80,6 +80,7 @@ import android.view.Window
 import android.view.WindowManager
 import android.graphics.drawable.ColorDrawable
 import android.view.ViewAnimationUtils
+import android.text.Html
 
 class MainActivity : AppCompatActivity() {
 
@@ -192,6 +193,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
 
         setContentView(binding.root)
+
+        checkUserAgreement()
 
         setupEdgeToEdge()
 
@@ -378,6 +381,54 @@ class MainActivity : AppCompatActivity() {
                 .setInterpolator(OvershootInterpolator(1.1f))
                 .start()
         }
+    }
+
+    private fun checkUserAgreement() {
+        if (!prefs.getBoolean("user_agreement_accepted", false)) {
+            showUserAgreementDialog()
+        }
+    }
+
+    private fun showUserAgreementDialog() {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialogBinding = com.ai.phoneagent.databinding.DialogUserAgreementBinding.inflate(layoutInflater)
+        dialog.setContentView(dialogBinding.root)
+        dialog.setCancelable(false)
+        dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            // 设置宽度为屏幕比例
+            val width = (resources.displayMetrics.widthPixels * 0.88).toInt()
+            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+            
+            // 进场动画
+            window.attributes.windowAnimations = android.R.style.Animation_Dialog
+        }
+
+        // 应用自适应高度
+        DialogSizingUtil.applyCompactSizing(
+            this,
+            dialogBinding.cardAgreement,
+            dialogBinding.scrollAgreement,
+            null,
+            false
+        )
+
+        // 渲染 HTML 内容（支持加粗）
+        val content = getString(R.string.user_agreement_content)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            dialogBinding.tvAgreementContent.text = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_COMPACT)
+        } else {
+            @Suppress("DEPRECATION")
+            dialogBinding.tvAgreementContent.text = android.text.Html.fromHtml(content)
+        }
+
+        dialogBinding.btnAgreementAgree.setOnClickListener {
+            prefs.edit().putBoolean("user_agreement_accepted", true).apply()
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     private fun setupEdgeToEdge() {
