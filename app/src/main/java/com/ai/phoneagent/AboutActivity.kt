@@ -217,15 +217,18 @@ class AboutActivity : AppCompatActivity() {
         
         dialog.window?.let { window ->
             window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val width = (resources.displayMetrics.widthPixels * 0.88).toInt()
-            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
-            window.attributes.windowAnimations = android.R.style.Animation_Dialog
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+            window.setDimAmount(0f)
+            window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         }
+
+        val cardView = dialogBinding.cardAgreement
+        val containerView = dialogBinding.dialogContainer
 
         // 应用自适应高度
         DialogSizingUtil.applyCompactSizing(
             this,
-            dialogBinding.cardAgreement,
+            cardView,
             dialogBinding.scrollAgreement,
             null,
             false
@@ -239,12 +242,35 @@ class AboutActivity : AppCompatActivity() {
             Html.fromHtml(content)
         }
 
-        dialogBinding.btnAgreementAgree.text = "返回"
-        dialogBinding.btnAgreementAgree.setOnClickListener {
-            dialog.dismiss()
+        fun exitDialog() {
+            vibrateLight()
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(450)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { dialog.dismiss() }
+                .start()
         }
 
+        dialogBinding.btnAgreementAgree.text = "返回"
+        dialogBinding.btnAgreementAgree.setOnClickListener { exitDialog() }
+        containerView.setOnClickListener { exitDialog() }
+        cardView.setOnClickListener { } // 阻止点击卡片关闭
+
         dialog.show()
+
+        // 入场动画
+        cardView.post {
+            cardView.translationY = cardView.height.toFloat() * 1.2f
+            cardView.alpha = 0f
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .setDuration(600)
+                .setInterpolator(OvershootInterpolator(1.0f))
+                .start()
+        }
     }
 
     private fun showChangelogDialog() {

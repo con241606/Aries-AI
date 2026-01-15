@@ -397,38 +397,62 @@ class MainActivity : AppCompatActivity() {
         dialog.setCancelable(false)
         dialog.window?.let { window ->
             window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            // 设置宽度为屏幕比例
-            val width = (resources.displayMetrics.widthPixels * 0.88).toInt()
-            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
-            
-            // 进场动画
-            window.attributes.windowAnimations = android.R.style.Animation_Dialog
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+            window.setDimAmount(0f)
+            window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         }
+
+        val cardView = dialogBinding.cardAgreement
 
         // 应用自适应高度
         DialogSizingUtil.applyCompactSizing(
             this,
-            dialogBinding.cardAgreement,
+            cardView,
             dialogBinding.scrollAgreement,
             null,
             false
         )
 
-        // 渲染 HTML 内容（支持加粗）
+        // 渲染 HTML 内容
         val content = getString(R.string.user_agreement_content)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            dialogBinding.tvAgreementContent.text = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_COMPACT)
+        dialogBinding.tvAgreementContent.text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Html.fromHtml(content, Html.FROM_HTML_MODE_COMPACT)
         } else {
             @Suppress("DEPRECATION")
-            dialogBinding.tvAgreementContent.text = android.text.Html.fromHtml(content)
+            Html.fromHtml(content)
+        }
+
+        fun exitDialog() {
+            cardView.animate()
+                .translationY(cardView.height.toFloat() * 1.5f)
+                .alpha(0f)
+                .setDuration(500)
+                .setInterpolator(AccelerateInterpolator(1.2f))
+                .withEndAction { 
+                    dialog.dismiss()
+                    maybeShowPermissionBottomSheet()
+                }
+                .start()
         }
 
         dialogBinding.btnAgreementAgree.setOnClickListener {
             prefs.edit().putBoolean("user_agreement_accepted", true).apply()
-            dialog.dismiss()
+            exitDialog()
         }
 
         dialog.show()
+
+        // 入场动画
+        cardView.post {
+            cardView.translationY = cardView.height.toFloat() * 1.2f
+            cardView.alpha = 0f
+            cardView.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .setDuration(700)
+                .setInterpolator(OvershootInterpolator(1.0f))
+                .start()
+        }
     }
 
     private fun setupEdgeToEdge() {
@@ -524,6 +548,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun maybeShowPermissionBottomSheet() {
+        if (!prefs.getBoolean("user_agreement_accepted", false)) return
         if (prefs.getBoolean(permGuideShownPref, false)) return
         if (supportFragmentManager.findFragmentByTag(PermissionBottomSheet.TAG) != null) return
         runCatching {
