@@ -32,6 +32,10 @@ class UiAutomationAgent(
         minIntervalMs = 1100L  // 1.1秒最小间隔
     )
 
+    // Tap+Type 合并执行状态
+    private var lastActionWasTap = false
+    private var lastTapAction: ParsedAgentAction? = null
+
     interface Control {
         fun isPaused(): Boolean
         suspend fun confirm(message: String): Boolean
@@ -152,11 +156,6 @@ class UiAutomationAgent(
     }
 
     /**
-     * 流式请求模型并支持早停优化
-     * 当检测到完整的 do(...) 或 finish(...) 动作时，立即停止读取后续内容
-     * 可节省 0.5-2 秒的"尾部等待"时间
-     */
-    /**
      * 优化的截图获取方法（集成缓存+节流+压缩）
      * 1. 检查节流器，防止频繁截图
      * 2. 检查缓存，避免重复截图
@@ -222,104 +221,6 @@ class UiAutomationAgent(
         }
         if (config.enableScreenshotThrottle) {
             screenshotThrottler.reset()
-        }
-    }
-
-    private suspend fun requestModelStreamingWithEarlyStop(
-            apiKey: String,
-            model: String,
-            messages: List<ChatRequestMessage>,
-            step: Int,
-            onLog: (String) -> Unit,
-            onThinkingDelta: (String) -> Unit,
-    ): kotlin.Result<String> {
-        val thinkingBuilder = StringBuilder()
-        val contentBuilder = StringBuilder()
-        var hasCompleteAction = false
-        var lastThinkingUpdateTime = System.currentTimeMillis()
-        val thinkingTimeoutMs = 30_000L // 30秒无新思考内容则超时
-        val maxTotalTimeMs = 60_000L // 最多等待60秒
-        val startTime = System.currentTimeMillis()
-        
-        // 检测是否已获取完整动作（用于早停）
-        fun checkCompleteAction(text: String): Boolean {
-            // 检测完整的 do(...) 或 finish(...)
-            val doMatch = Regex("""do\s*\([^)]*\)""").find(text)
-            val finishMatch = Regex("""finish\s*\([^)]*\)""").find(text)
-            return doMatch != null || finishMatch != null
-        }
-        
-        val result = try {
-            withTimeoutOrNull(maxTotalTimeMs) {
-                withContext(Dispatchers.IO) {
-                    AutoGlmClient.sendChatStreamResult(
-                        apiKey = apiKey,
-                        messages = messages,
-                        model = model,
-                        temperature = config.temperature,
-                        maxTokens = config.maxTokens,
-                        topP = config.topP,
-                        frequencyPenalty = config.frequencyPenalty,
-                        onReasoningDelta = { delta ->
-                            thinkingBuilder.append(delta)
-                            lastThinkingUpdateTime = System.currentTimeMillis()
-                            onThinkingDelta(delta)
-                        },
-                        onContentDelta = { delta ->
-                            contentBuilder.append(delta)
-                            // 检测是否已获取完整动作
-                            if (!hasCompleteAction && checkCompleteAction(contentBuilder.toString())) {
-                                hasCompleteAction = true
-                            }
-                        },
-                        shouldStop = { 
-                            hasCompleteAction || 
-                            (System.currentTimeMillis() - lastThinkingUpdateTime > thinkingTimeoutMs)
-                        },
-                        useFastTimeouts = true,
-                    )
-                }
-            }
-        } catch (e: CancellationException) {
-            // 若被外部取消，但已经有部分响应，则允许后续使用部分内容
-            onLog("[Step $step] 流式请求被取消（可能用户中止），将尝试使用已获取内容")
-            null
-        } catch (e: Exception) {
-            onLog("[Step $step] 流式请求异常：${e.message.orEmpty().take(200)}")
-            null
-        }
-        
-        if (result == null) {
-            // 超时或取消：若有部分内容则继续，否则失败
-            if (contentBuilder.isNotEmpty() || thinkingBuilder.isNotEmpty()) {
-                onLog("[Step $step] 模型请求超时/取消，使用已获取的部分内容")
-            } else {
-                return kotlin.Result.failure(IOException("Streaming timeout/cancel after ${System.currentTimeMillis() - startTime}ms"))
-            }
-        }
-
-        if (result != null && result.isFailure) {
-            return kotlin.Result.failure(result.exceptionOrNull() ?: IOException("Streaming failed"))
-        }
-        
-        // 组合思考和内容
-        val fullResponse = buildString {
-            if (thinkingBuilder.isNotEmpty()) {
-                append("【思考开始】")
-                append(thinkingBuilder)
-                append("【思考结束】")
-            }
-            if (contentBuilder.isNotEmpty()) {
-                append("【回答开始】")
-                append(contentBuilder)
-                append("【回答结束】")
-            }
-        }
-        
-        return if (fullResponse.isNotBlank()) {
-            kotlin.Result.success(fullResponse)
-        } else {
-            kotlin.Result.failure(IOException("Empty response"))
         }
     }
 
@@ -431,31 +332,19 @@ do(action="Tap", element=[x,y])
 
     /**
      * 检测用户任务中是否包含需要打开的应用，如果包含则自动启动（智能应用启动）
-     * 支持的模式：
-     * - "打开xxx" / "启动xxx" / "进入xxx" / "帮我打开xxx"
-     * - "用xxx" / "去xxx" / "切换到xxx"
-     * - "open xxx" / "launch xxx" / "start xxx"
-     * - 直接在消息中提及应用名称
-     * 
-     * 此功能会在调用模型前直接执行，加快响应速度，节省API调用
      */
     private suspend fun trySmartAppLaunch(
             task: String,
             service: PhoneAgentAccessibilityService,
             onLog: (String) -> Unit,
     ): Boolean {
-        // 检测"打开/启动/进入"等动作词后面的应用名
-        // 支持中英文、模糊匹配、多种动作词
         val launchPatterns = listOf(
-            // 中文动作词：打开、启动、进入、帮我打开、用、去、切换到、跳转到
             Regex("""(?:打开|启动|进入|帮我打开|用|去|切换到|跳转到|回到)\s*([^\s，。,\.！!？?；;]+?)(?:\s|，|。|,|\.|！|!|？|\?|；|;|$)"""),
-            // 英文动作词：open、launch、start、switch to、go to
-            Regex("""(?:open|launch|start|switch\s+to|go\s+to)\s+(\S+)""", RegexOption.IGNORE_CASE),
+            Regex("""(?:open|launch|start|switch\s+to|go\s+to)\s*(\S+)""", RegexOption.IGNORE_CASE),
         )
         
         var appMatch: AppPackageMapping.Match? = null
         
-        // 首先尝试动作词模式
         for (pattern in launchPatterns) {
             val matchResult = pattern.find(task)
             if (matchResult != null) {
@@ -475,7 +364,6 @@ do(action="Tap", element=[x,y])
             }
         }
         
-        // 如果动作词模式没有找到，尝试直接在任务中查找应用名
         if (appMatch == null) {
             appMatch = AppPackageMapping.bestMatchInText(task)
         }
@@ -484,14 +372,12 @@ do(action="Tap", element=[x,y])
             return false
         }
         
-        // 检查当前应用是否已经是目标应用
         val currentApp = service.currentAppPackage()
         if (currentApp == appMatch.packageName) {
             onLog("[⚡快速启动] ${appMatch.appLabel} 已在前台，跳过启动（无需连接模型）")
             return true
         }
         
-        // 尝试启动应用
         val pm = service.packageManager
         val intent = pm.getLaunchIntentForPackage(appMatch.packageName)
         if (intent == null) {
@@ -509,14 +395,100 @@ do(action="Tap", element=[x,y])
             val beforeTime = service.lastWindowEventTime()
             LaunchProxyActivity.launch(service, intent)
             onLog("[⚡快速启动] 后台启动 ${appMatch.appLabel}（无需连接模型，节省时间）")
-            // 等待应用启动完成
             service.awaitWindowEvent(beforeTime, timeoutMs = 2200L)
-            delay(500) // 额外等待应用界面稳定
+            delay(500)
             return true
         } catch (e: Exception) {
             onLog("[⚡快速启动] 启动失败: ${e.message}")
             return false
         }
+    }
+
+    /**
+     * 检测是否可以执行 Tap+Type 合并操作
+     * 当当前动作是 Tap（点击输入框）且下一轮会执行 Type（输入文本）时，可以合并执行
+     */
+    private fun shouldCombineTapType(currentAction: ParsedAgentAction, nextAction: ParsedAgentAction?): Boolean {
+        val currentName = currentAction.actionName?.trim()?.lowercase() ?: ""
+        val nextName = nextAction?.actionName?.trim()?.lowercase() ?: ""
+        
+        // 判断当前动作是否是点击（可能是点击输入框）
+        val isTap = currentName == "tap" || currentName == "click" || currentName == "press"
+        
+        // 判断下一个动作是否是输入
+        val isType = nextName == "type" || nextName == "input" || nextName == "text"
+        
+        // 如果当前点击有坐标且下一个是输入，且当前点击没有 selector 参数（使用坐标点击）
+        // 则可能是点击输入框后输入，可以合并
+        if (isTap && isType) {
+            val currentHasElement = currentAction.fields.containsKey("element") || 
+                                   currentAction.fields.containsKey("x") ||
+                                   currentAction.fields.containsKey("point")
+            return currentHasElement
+        }
+        
+        return false
+    }
+
+    /**
+     * 执行合并的 Tap+Type 操作
+     */
+    private suspend fun executeTapAndType(
+        service: PhoneAgentAccessibilityService,
+        tapAction: ParsedAgentAction,
+        typeAction: ParsedAgentAction,
+        uiDump: String,
+        screenW: Int,
+        screenH: Int,
+        control: Control,
+        onLog: (String) -> Unit,
+    ): Boolean {
+        val inputText = typeAction.fields["text"].orEmpty()
+        
+        // 提取点击坐标
+        val element = parsePoint(tapAction.fields["element"])
+                ?: parsePoint(tapAction.fields["point"])
+                ?: parsePoint(tapAction.fields["pos"])
+        
+        if (element == null) {
+            onLog("[合并执行] 无法获取点击坐标，回退到分别执行")
+            return false
+        }
+        
+        val x = (element.first / 1000.0f) * screenW
+        val y = (element.second / 1000.0f) * screenH
+        
+        onLog("[合并执行] Tap(${element.first},${element.second}) + Type(${inputText.take(20)})")
+        
+        // 隐藏悬浮窗
+        AutomationOverlay.temporaryHide()
+        delay(30)
+        
+        // 执行点击
+        val clickOk = service.clickAwait(x, y)
+        if (!clickOk) {
+            AutomationOverlay.restoreVisibility()
+            return false
+        }
+        
+        // 等待输入框激活
+        delay(200)
+        
+        // 执行输入
+        var ok = service.setTextOnFocused(inputText)
+        
+        // 如果失败，尝试查找可编辑元素
+        if (!ok) {
+            onLog("[合并执行] 直接输入失败，尝试查找输入框...")
+            val inputClicked = service.clickFirstEditableElement()
+            if (inputClicked) {
+                delay(200)
+                ok = service.setTextOnFocused(inputText)
+            }
+        }
+        
+        AutomationOverlay.restoreVisibility()
+        return ok
     }
 
     suspend fun run(
@@ -531,9 +503,6 @@ do(action="Tap", element=[x,y])
         val screenW = metrics.widthPixels
         val screenH = metrics.heightPixels
 
-        // ⚡ 智能应用启动：检测"打开XXX"等指令，直接后台启动，无需调用模型API
-        // 支持：打开/启动/进入/用/去/切换到 + 应用名（中英文均可）
-        // 效果：节省1-2秒模型调用时间，提升用户体验
         val smartLaunched = trySmartAppLaunch(task, service, onLog)
         if (smartLaunched) {
             onLog("✓ 应用已快速启动，继续后续操作...")
@@ -543,8 +512,11 @@ do(action="Tap", element=[x,y])
         history +=
                 ChatRequestMessage(role = "system", content = buildSystemPrompt(screenW, screenH))
 
-        // 清除截图缓存和限流器
         clearScreenshotCache()
+
+        // 重置 Tap+Type 合并执行状态
+        lastActionWasTap = false
+        lastTapAction = null
 
         var step = 0
         while (step < config.maxSteps) {
@@ -560,7 +532,7 @@ do(action="Tap", element=[x,y])
                     subtitle = "读取界面"
             )
             
-            // ⚡ 性能优化：并行获取截图和UI树
+            // 并行获取截图和UI树
             val (screenshot, rawUiDump) = coroutineScope {
                 val screenshotDeferred = async { getOptimizedScreenshot(service) }
                 val uiDumpDeferred = async { service.dumpUiTreeWithRetry(maxNodes = 30) }
@@ -584,7 +556,6 @@ do(action="Tap", element=[x,y])
                 onLog("[Step $step] 截图：不可用（将使用纯文本/无障碍树模式）")
             }
 
-            // 简化用户消息，减少token消耗
             val userMsg =
                     if (step == 1) {
                         "$task\n\n$screenInfo\n\nUI树：\n$uiDump"
@@ -609,7 +580,6 @@ do(action="Tap", element=[x,y])
                         userMsg
                     }
             
-            // 在添加新消息前，先裁剪历史以控制上下文大小
             trimHistory(history, config.maxContextTokens, config.maxHistoryTurns)
             
             history += ChatRequestMessage(role = "user", content = userContent)
@@ -623,13 +593,8 @@ do(action="Tap", element=[x,y])
                     subtitle = "请求模型"
             )
             
-            // 启动流式思考显示
             AutomationOverlay.startThinking()
             
-            // 【重要】禁用流式：之前的流式实现存在致命缺陷
-            // 问题：早停条件导致内容不完整 → 触发回退 → 原流式协程仍继续运行 → 两个请求并行 → 协程状态混乱
-            // 解决：直接用稳定的非流式请求，牺牲<1秒时间换取稳定性
-            var streamedThinking = ""
             val replyResult = requestModelWithRetry(
                 apiKey = apiKey,
                 model = model,
@@ -641,7 +606,6 @@ do(action="Tap", element=[x,y])
 
             val finalReply = replyResult.getOrNull()?.trim().orEmpty()
             
-            // 停止流式思考显示
             AutomationOverlay.stopThinking()
             
             if (finalReply.isBlank()) {
@@ -660,7 +624,6 @@ do(action="Tap", element=[x,y])
             val (thinking, answer) = splitThinkingAndAnswer(finalReply)
             if (!thinking.isNullOrBlank()) {
                 onLog("[Step $step] 思考：${thinking.take(180)}")
-                // 从第一步的思考中解析预估步骤数
                 if (step == 1) {
                     val estimatedSteps = parseEstimatedSteps(thinking)
                     if (estimatedSteps > 0) {
@@ -710,7 +673,6 @@ do(action="Tap", element=[x,y])
                                 ?.lowercase()
                                 .orEmpty()
                 
-                // 更新悬浮窗显示当前执行的动作
                 val displayActionName = getDisplayActionName(actionName, currentAction)
                 AutomationOverlay.updateProgress(
                         step = step,
@@ -728,9 +690,48 @@ do(action="Tap", element=[x,y])
                     return Result(false, "需要用户交互/扩展能力：${currentAction.raw.take(180)}", step)
                 }
 
+                // 检测是否可以合并执行 Tap+Type
+                // 当当前是 Type 且上一个动作是 Tap（点击输入框）时，尝试合并执行
+                val isTypeAction = actionName == "type" || actionName == "input" || actionName == "text"
+                val wasPreviousTap = lastActionWasTap
+
                 execOk =
                         try {
-                            execute(service, currentAction, uiDump, screenW, screenH, control, onLog)
+                            if (isTypeAction && wasPreviousTap) {
+                                // 合并执行：先点击再输入
+                                // 记录之前的 Tap 动作信息
+                                val previousTapAction = lastTapAction
+                                lastActionWasTap = false
+                                lastTapAction = null
+
+                                if (previousTapAction != null) {
+                                    onLog("[合并执行] Tap + Type")
+                                    executeTapAndTypeCombined(
+                                        service = service,
+                                        tapAction = previousTapAction,
+                                        typeAction = currentAction,
+                                        uiDump = uiDump,
+                                        screenW = screenW,
+                                        screenH = screenH,
+                                        control = control,
+                                        onLog = onLog
+                                    )
+                                } else {
+                                    // 没有记录到上一个 Tap，直接执行 Type
+                                    execute(service, currentAction, uiDump, screenW, screenH, control, onLog)
+                                }
+                            } else {
+                                // 正常执行
+                                if (actionName == "tap" || actionName == "click" || actionName == "press") {
+                                    // 记录这个 Tap，可能下一轮会 Type
+                                    lastActionWasTap = true
+                                    lastTapAction = currentAction
+                                } else {
+                                    lastActionWasTap = false
+                                    lastTapAction = null
+                                }
+                                execute(service, currentAction, uiDump, screenW, screenH, control, onLog)
+                            }
                         } catch (e: TakeOverException) {
                             val msg = e.message.orEmpty().ifBlank { "需要用户接管" }
                             return Result(false, msg, step)
@@ -748,7 +749,7 @@ do(action="Tap", element=[x,y])
                 }
                 repairAttempt++
 
-                onLog("[Step $step] 动作执行失败，尝试让模型修复（$repairAttempt/${config.maxActionRepairs}）…")
+                onLog("[Step $step] 动作执行失败，尝试让模型修复（$repairAttempt/${config.maxActionRepairs})…")
 
                 AutomationOverlay.updateProgress(
                         step = step,
@@ -821,12 +822,9 @@ do(action="Tap", element=[x,y])
                     subtitle = "等待界面稳定"
             )
 
-            // 【历史瘦身】执行完动作后，从历史中移除图片数据，只保留文本
-            // 参考 Aries AI 的 removeImagesFromLastUserMessage 策略
             if (observationUserIndex in history.indices) {
                 val obs = history[observationUserIndex]
                 if (obs.content is List<*>) {
-                    // 只保留文本部分，移除图片以降低后续请求的 token 压力
                     history[observationUserIndex] =
                             ChatRequestMessage(role = "user", content = userMsg)
                 }
@@ -845,83 +843,74 @@ do(action="Tap", element=[x,y])
                 today.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日")) +
                         " " + weekNames[today.dayOfWeek.ordinal]
 
-        return (
-                """
+        return ("""
 今天的日期是: $formattedDate
-你是 Aries AI。
-你是一个智能体分析专家，可以根据操作历史和当前状态图执行一系列操作来完成任务。
+你是 Aries AI 手机自动化助手，基于安卓无障碍服务(AccessibilityService)控制手机执行任务。
 
-你必须严格按以下结构输出（否则我的 Android 应用无法正确解析动作）：
+【核心原则】
+- 每次只执行一个动作，等待执行结果后再决定下一步
+- 优先使用 selector（resourceId/text/contentDesc/className/index）定位元素，坐标仅作兜底
+- 点击前确保目标元素可见；滚动查找时每次滑动后等待页面加载完成
+- 输入文本前必须先点击激活输入框，确保输入框已获得焦点
+- 敏感操作（支付/密码/验证码）必须使用 Take_over 让用户接管
 
+【输出格式】（严格遵守，否则无法解析）
 【思考开始】
-{think}
+{简洁的推理：为什么选择这个动作}
 【思考结束】
 
 【回答开始】
-{action}
+{具体动作指令：do(...) 或 finish(...)}
 【回答结束】
 
-其中：
-- {think} 是对你为什么选择这个操作的简短推理说明。
-- {action} 是本次执行的具体操作指令，必须严格遵循下方定义的指令格式。你在 {action} 中只能输出 do(...) 或 finish(...)，不要输出多余解释文字。
+【可用动作指令】
+1. Launch(app="应用名/包名") - 启动应用（优先使用，比手动导航更快）
+2. Tap(element=[x,y]) - 点击坐标（0-1000相对坐标）或使用selector定位
+3. Type(text="文字内容") - 在已聚焦的输入框中输入文本
+4. Swipe(start=[x1,y1], end=[x2,y2]) - 滑动（滚动/切页/下拉）
+5. Back - 返回上一页
+6. Home - 返回桌面
+7. Wait(duration="x秒") - 等待页面加载
+8. Take_over(message="接管原因") - 需要用户处理支付/验证等
 
-操作指令及其作用如下：
-- do(action="Launch", app="xxx")  
-    Launch是启动目标app的操作，这比通过主屏幕导航更快。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Tap", element=[x,y])  
-    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Tap", element=[x,y], message="重要操作")  
-    基本功能同Tap，点击涉及财产、支付、隐私等敏感按钮时触发。
-- do(action="Type", text="xxx")  
-    Type是输入操作，在当前聚焦的输入框中输入文本。使用此操作前，请确保输入框已被聚焦（先点击它）。输入的文本将像使用键盘输入一样输入。重要提示：手机可能正在使用 ADB 键盘，该键盘不会像普通键盘那样占用屏幕空间。要确认键盘已激活，请查看屏幕底部是否显示 'ADB Keyboard {ON}' 类似的文本，或者检查输入框是否处于激活/高亮状态。不要仅仅依赖视觉上的键盘显示。自动清除文本：当你使用输入操作时，输入框中现有的任何文本（包括占位符文本和实际输入）都会在输入新文本前自动清除。你无需在输入前手动清除文本——直接使用输入操作输入所需文本即可。操作完成后，你将自动收到结果状态的截图。
-- do(action="Type_Name", text="xxx")  
-    Type_Name是输入人名的操作，基本功能同Type。
-- do(action="Interact")  
-    Interact是当有多个满足条件的选项时而触发的交互操作，询问用户如何选择。
-- do(action="Swipe", start=[x1,y1], end=[x2,y2])  
-    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。滑动持续时间会自动调整以实现自然的移动。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Note", message="True")  
-    记录当前页面内容以便后续总结。
-- do(action="Call_API", instruction="xxx")  
-    总结或评论当前页面或已记录的内容。
-- do(action="Long Press", element=[x,y])  
-    Long Press是长按操作，在屏幕上的特定点长按指定时间。可用于触发上下文菜单、选择文本或激活长按交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的屏幕截图。
-- do(action="Double Tap", element=[x,y])  
-    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Take_over", message="xxx")  
-    Take_over是接管操作，表示在登录和验证阶段需要用户协助。
-- do(action="Back")  
-    导航返回到上一个屏幕或关闭当前对话框。相当于按下 Android 的返回按钮。使用此操作可以从更深的屏幕返回、关闭弹出窗口或退出当前上下文。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Home") 
-    Home是回到系统桌面的操作，相当于按下 Android 主屏幕按钮。使用此操作可退出当前应用并返回启动器，或从已知状态启动新任务。此操作完成后，您将自动收到结果状态的截图。
-- do(action="Wait", duration="x seconds")  
-    等待页面加载，x为需要等待多少秒。
-- finish(message="xxx")  
-    finish是结束任务的操作，表示准确完整完成任务，message是终止信息。
+【坐标系统】
+- 相对坐标：0-1000，例如 element=[500,500] 表示屏幕中心
+- 当前屏幕像素：${screenW}x${screenH}
+- 优先使用 selector 定位，坐标仅当 selector 失败时作为兜底
 
-坐标系统：左上角(0,0) 到 右下角(999,999)，相对屏幕映射；当前屏幕像素：${screenW}x${screenH}。
+【UI树格式说明】
+UI树中的 bounds 格式：[left,top][right,bottom]
+例如：[100,200][300,400] 表示从 (100,200) 到 (300,400) 的矩形区域
+node_id 使用 bounds 字符串作为唯一标识
 
-必须遵循的规则：
-0. 当页面出现支付/付款/密码/验证码/银行卡等验证或付款相关内容时，必须输出 do(action="Take_over", message="请你接管完成支付/验证")，不要继续执行 Tap/Type。
-1. 在执行任何操作前，先检查当前app是否是目标app，如果不是，先执行 Launch。
-2. 如果进入到了无关页面，先执行 Back。如果执行Back后页面没有变化，请点击页面左上角的返回键进行返回，或者右上角的X号关闭。
-3. 如果页面未加载出内容，最多连续 Wait 三次，否则执行 Back重新进入。
-4. 如果页面显示网络问题，需要重新加载，请点击重新加载。
-5. 如果当前页面找不到目标联系人、商品、店铺等信息，可以尝试 Swipe 滑动查找。
-6. 遇到价格区间、时间区间等筛选条件，如果没有完全符合的，可以放宽要求。
-7. 在做小红书总结类任务时一定要筛选图文笔记。
-8. 购物车全选后再点击全选可以把状态设为全不选，在做购物车任务时，如果购物车里已经有商品被选中时，你需要点击全选后再点击取消全选，再去找需要购买或者删除的商品。
-9. 在做外卖任务时，如果相应店铺购物车里已经有其他商品你需要先把购物车清空再去购买用户指定的外卖。
-10. 在做点外卖任务时，如果用户需要点多个外卖，请尽量在同一店铺进行购买，如果无法找到可以下单，并说明某个商品未找到。
-11. 请严格遵循用户意图执行任务，用户的特殊要求可以执行多次搜索，滑动查找。比如（i）用户要求点一杯咖啡，要咸的，你可以直接搜索咸咖啡，或者搜索咖啡后滑动查找咸的咖啡，比如海盐咖啡。（ii）用户要找到XX群，发一条消息，你可以先搜索XX群，找不到结果后，将"群"字去掉，搜索XX重试。（iii）用户要找到宠物友好的餐厅，你可以搜索餐厅，找到筛选，找到设施，选择可带宠物，或者直接搜索可带宠物，必要时可以使用AI搜索。
-12. 在选择日期时，如果原滑动方向与预期日期越来越远，请向反方向滑动查找。
-13. 执行任务过程中如果有多个可选择的项目栏，请逐个查找每个项目栏，直到完成任务，一定不要在同一项目栏多次查找，从而陷入死循环。
-14. 在执行下一步操作前请一定要检查上一步的操作是否生效，如果点击没生效，可能因为app反应较慢，请先稍微等待一下，如果还是不生效请调整一下点击位置重试，如果仍然不生效请跳过这一步继续任务，并在finish message说明点击不生效。
-15. 在执行任务中如果遇到滑动不生效的情况，请调整一下起始点位置，增大滑动距离重试，如果还是不生效，有可能是已经滑到底了，请继续向反方向滑动，直到顶部或底部，如果仍然没有符合要求的结果，请跳过这一步继续任务，并在finish message说明但没找到要求的项目。
-16. 在做游戏任务时如果在战斗页面如果有自动战斗一定要开启自动战斗，如果多轮历史状态相似要检查自动战斗是否开启。
-17. 如果没有合适的搜索结果，可能是因为搜索页面不对，请返回到搜索页面的上一级尝试重新搜索，如果尝试三次返回上一级搜索后仍然没有符合要求的结果，执行 finish(message="原因")。
-18. 在结束任务前请一定要仔细检查任务是否完整准确的完成，如果出现错选、漏选、多选的情况，请返回之前的步骤进行纠正。
-19. 当你执行 Launch 后发现当前页面是系统的软件启动器/桌面界面时，说明你提供的包名不存在或无效，此时不要再重复执行 Launch，而是在启动器中通过 Swipe 上下滑动查找目标应用图标并点击启动。
+【重要规则】（必须严格遵守）
+0. 检测到支付/密码/验证码/银行卡/CVV/安全码等敏感内容 → 立即 Take_over
+1. 执行任何操作前，先确认当前应用是否是目标应用
+2. 进入无关页面 → 先 Back，无效则点击左上角返回或右上角X
+3. 页面加载超时 → 最多 Wait 3次，否则 Back 重新进入
+4. 找不到目标 → 尝试 Swipe 滑动查找；搜索无结果 → 尝试简化关键词
+5. 筛选条件放宽处理：价格/时间区间没有完全匹配的可以适当放宽
+6. 点击前先检查元素是否可见；点击后等待界面响应（200-400ms）
+7. 输入文本前必须确保输入框已获得焦点（观察是否有光标或键盘弹出）
+8. 如果 Type 失败，先用 Tap 再次点击输入框确保聚焦，再重试输入
+9. 任务完成前仔细检查：是否有遗漏步骤、是否错选、是否需要回退纠正
+10. 连续失败3次或超时 → 考虑换一种方式或跳过该步骤
+11. 每次只输出一个 do(...) 动作，等待执行结果后再继续
+12. 购物车全选后再点击全选可以把状态设为全不选；购物车里已有商品时，先全选再取消后再操作目标商品
+13. 在做外卖任务时，如果店铺购物车里已经有其他商品，先清空再购买用户指定的外卖
+14. 点多个外卖时尽量在同一店铺下单，若未找到需说明未找到的商品
+15. 严格遵循用户意图执行任务，可多次搜索或滑动查找
+16. 选择日期时，如果滑动方向与预期相反，请向反方向滑动
+17. 有多个可选择的项目栏时，逐个查找，不要在同一栏多次循环
+18. 在做游戏任务时若在战斗页面有自动战斗须开启，历史状态相似需检查是否开启自动战斗
+19. 若搜索结果不合适，可能页面不对，返回上一级重新搜索；三次仍无结果则 finish(message="原因")
+20. 当 Launch 后发现是系统启动器界面，说明包名无效，此时在启动器中通过 Swipe 查找目标应用图标并点击
+
+【输入操作要点】
+- Type 前必须先 Tap 点击输入框，确保焦点
+- 点击后等待 200-400ms 让键盘完全弹出
+- 如果 setTextOnFocused 失败，尝试 clickFirstEditableElement 后再输入
+- 系统会自动优化 Tap+Type 合并执行，减少等待时间
 """
                         .trimIndent()
         )
@@ -1003,14 +992,7 @@ do(action="Tap", element=[x,y])
         return thinking to answer
     }
     
-    /**
-     * 从模型的"思考"内容中解析预估步骤数
-     * 支持的格式：
-     * - "我需要：1. xxx 2. xxx 3. xxx" 或 "第1步 第2步 第3步"
-     * - "需要N步" / "大约N步" / "共N个步骤"
-     */
     private fun parseEstimatedSteps(thinking: String): Int {
-        // 尝试匹配明确的步骤数声明
         val explicitPatterns = listOf(
             Regex("""(?:需要|大约|共|总共|预计)\s*(\d+)\s*(?:步|个步骤|个操作)"""),
             Regex("""(\d+)\s*(?:步|个步骤|个操作)(?:完成|即可|就能)"""),
@@ -1023,13 +1005,10 @@ do(action="Tap", element=[x,y])
             }
         }
         
-        // 检测"我需要："后面的编号列表（最常见的格式）
-        // 例如："我需要：\n1. 修改出发地\n2. 修改目的地\n3. 修改日期\n4. 查询车票\n5. 选择最便宜的"
         val needPattern = Regex("""我需要[：:]\s*([\s\S]*?)(?:首先|然后|接下来|现在|$)""")
         val needMatch = needPattern.find(thinking)
         if (needMatch != null) {
             val needContent = needMatch.groupValues.getOrNull(1).orEmpty()
-            // 计算其中的编号数量
             val numbers = Regex("""(\d+)\s*[\.、）\)：:]""")
                 .findAll(needContent)
                 .mapNotNull { it.groupValues.getOrNull(1)?.toIntOrNull() }
@@ -1040,7 +1019,6 @@ do(action="Tap", element=[x,y])
             }
         }
         
-        // 计算编号列表中的步骤数（1. 2. 3. 或 第1步 第2步）
         val numberedSteps = Regex("""(?:^|\n|\s|，|。|；)(\d+)\s*[\.、）\)：:]|第(\d+)步""")
             .findAll(thinking)
             .mapNotNull { 
@@ -1054,7 +1032,6 @@ do(action="Tap", element=[x,y])
             if (maxStep in 2..20) return maxStep
         }
         
-        // 计算动作动词出现次数作为粗略估计
         val actionKeywords = listOf("点击", "输入", "滑动", "打开", "选择", "返回", "等待", "启动", "查询", "修改")
         val actionCount = actionKeywords.sumOf { keyword -> 
             thinking.split(keyword).size - 1 
@@ -1063,7 +1040,7 @@ do(action="Tap", element=[x,y])
             return actionCount.coerceIn(2, 15)
         }
         
-        return 0 // 无法解析
+        return 0
     }
 
     private fun extractTagContent(text: String, tag: String): String? {
@@ -1074,20 +1051,16 @@ do(action="Tap", element=[x,y])
     private fun parseAgentAction(raw: String): ParsedAgentAction {
         val original = raw.trim()
         
-        // 检查是否输出被截断（包含乱码字符或明显不完整）
-        val hasTruncationSign = original.contains("\uFFFD") || // 替换字符
+        val hasTruncationSign = original.contains("\uFFFD") ||
             original.endsWith("…") ||
             original.endsWith("...") ||
             (original.contains("我需要") && !original.contains("do(") && !original.contains("finish("))
         
-        // 检查是否输出了无效内容（如重复的UI元素描述）
         if (original.contains("text=\"") && original.count { it == '=' } > 10 && 
             !original.contains("do(") && !original.contains("finish(")) {
-            // 模型输出了UI元素列表而非动作，返回unknown让修复逻辑处理
             return ParsedAgentAction("unknown", null, emptyMap(), original.take(200))
         }
         
-        // 检查是否只有思考内容没有动作（如 "我需要：1. 2. 3. " 被截断）
         if (hasTruncationSign && !original.contains("do(") && !original.contains("finish(")) {
             return ParsedAgentAction("unknown", null, emptyMap(), "输出被截断，未包含动作")
         }
@@ -1117,13 +1090,11 @@ do(action="Tap", element=[x,y])
             return ParsedAgentAction("unknown", null, emptyMap(), trimmed.take(200))
         }
 
-        // 检查 do( 是否完整（有配对的右括号）
         val openParenIndex = trimmed.indexOf('(')
         if (openParenIndex < 0) {
             return ParsedAgentAction("unknown", null, emptyMap(), "do命令不完整")
         }
         
-        // 寻找配对的右括号
         var parenCount = 0
         var closeParenIndex = -1
         for (i in openParenIndex until trimmed.length) {
@@ -1139,11 +1110,9 @@ do(action="Tap", element=[x,y])
             }
         }
         
-        // 如果没有找到配对的右括号，尝试容错处理
         val inner = if (closeParenIndex > openParenIndex) {
             trimmed.substring(openParenIndex + 1, closeParenIndex).trim()
         } else {
-            // 没有右括号，取到末尾并去除可能的尾部垃圾
             trimmed.substring(openParenIndex + 1).trim().trimEnd(')', ',', ' ')
         }
         
@@ -1155,12 +1124,134 @@ do(action="Tap", element=[x,y])
             fields[key] = value
         }
         
-        // 如果解析出了action字段，即使格式不完整也尝试使用
         if (fields.containsKey("action")) {
             return ParsedAgentAction("do", fields["action"], fields, trimmed)
         }
 
         return ParsedAgentAction("unknown", null, emptyMap(), trimmed.take(200))
+    }
+
+    /**
+     * 合并执行 Tap + Type 操作
+     * 先点击输入框，然后立即输入文本，减少等待时间
+     * 优化策略：点击 → 等待 → 查找可编辑元素 → 聚焦 → 输入
+     */
+    private suspend fun executeTapAndTypeCombined(
+        service: PhoneAgentAccessibilityService,
+        tapAction: ParsedAgentAction,
+        typeAction: ParsedAgentAction,
+        uiDump: String,
+        screenW: Int,
+        screenH: Int,
+        control: Control,
+        onLog: (String) -> Unit,
+    ): Boolean {
+        val inputText = typeAction.fields["text"].orEmpty()
+
+        // 提取点击坐标
+        val element = parsePoint(tapAction.fields["element"])
+                ?: parsePoint(tapAction.fields["point"])
+                ?: parsePoint(tapAction.fields["pos"])
+                ?: return false
+
+        val x = (element.first / 1000.0f) * screenW
+        val y = (element.second / 1000.0f) * screenH
+
+        onLog("[合并执行] Tap(${element.first},${element.second}) + Type(${inputText.take(20)})")
+
+        // 隐藏悬浮窗
+        AutomationOverlay.temporaryHide()
+        delay(30)
+
+        // 执行点击
+        val clickOk = service.clickAwait(x, y)
+        onLog("[合并执行] 点击结果: $clickOk")
+        if (!clickOk) {
+            AutomationOverlay.restoreVisibility()
+            return false
+        }
+
+        // 等待键盘弹出和输入框激活
+        delay(400)
+
+        // 策略1：尝试直接setTextOnFocused
+        var ok = service.setTextOnFocused(inputText)
+        if (ok) {
+            onLog("[合并执行] setTextOnFocused 成功")
+            AutomationOverlay.restoreVisibility()
+            return true
+        }
+
+        // 策略2：查找并点击第一个可编辑元素
+        onLog("[合并执行] setTextOnFocused 失败，尝试查找可编辑元素...")
+        val inputClicked = service.clickFirstEditableElement()
+        if (inputClicked) {
+            onLog("[合并执行] 点击可编辑元素成功")
+            delay(250)
+            ok = service.setTextOnFocused(inputText)
+            if (ok) {
+                onLog("[合并执行] 第二次 setTextOnFocused 成功")
+                AutomationOverlay.restoreVisibility()
+                return true
+            }
+        }
+
+        // 策略3：直接尝试在任意可编辑元素输入（更激进的策略）
+        onLog("[合并执行] 尝试直接查找UI树中的可编辑元素...")
+        val root = service.rootInActiveWindow
+        if (root != null) {
+            val editable = findFirstEditableElement(root)
+            if (editable != null) {
+                val bounds = android.graphics.Rect()
+                editable.getBoundsInScreen(bounds)
+                if (bounds.width() > 0 && bounds.height() > 0) {
+                    onLog("[合并执行] 找到可编辑元素，点击中心: ${bounds.centerX()},${bounds.centerY()}")
+                    delay(100)
+                    val edClickOk = service.clickAwait(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+                    if (edClickOk) {
+                        delay(200)
+                        ok = service.setTextOnFocused(inputText)
+                        if (ok) {
+                            onLog("[合并执行] 策略3成功")
+                            AutomationOverlay.restoreVisibility()
+                            editable.recycle()
+                            root.recycle()
+                            return true
+                        }
+                    }
+                }
+                editable.recycle()
+            }
+            root.recycle()
+        }
+
+        AutomationOverlay.restoreVisibility()
+        return ok
+    }
+
+    /**
+     * 查找第一个可编辑元素（从AccessibilityService复制）
+     */
+    private fun findFirstEditableElement(root: android.view.accessibility.AccessibilityNodeInfo): android.view.accessibility.AccessibilityNodeInfo? {
+        val q = ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>()
+        q.add(root)
+        var guard = 0
+        while (q.isNotEmpty() && guard < 600) {
+            guard++
+            val n = q.removeFirst()
+            if (n.isEditable) {
+                return n
+            }
+            // 也检查 EditText 类名
+            val className = n.className?.toString().orEmpty()
+            if (className.contains("EditText", ignoreCase = true)) {
+                return n
+            }
+            for (i in 0 until n.childCount) {
+                n.getChild(i)?.let { q.add(it) }
+            }
+        }
+        return null
     }
 
     private suspend fun execute(
@@ -1238,7 +1329,6 @@ do(action="Tap", element=[x,y])
                     onLog("Launch 失败：未找到可启动入口：$pkgName（candidates=${candidates.joinToString()}）")
                     throw TakeOverException("暂未在手机中找到$t 应用")
                 }
-                // 添加标志，并通过透明跳板 Activity 前台拉起，减少系统确认弹窗
                 intent.addFlags(
                         Intent.FLAG_ACTIVITY_NEW_TASK or
                                 Intent.FLAG_ACTIVITY_NO_ANIMATION or
@@ -1303,7 +1393,6 @@ do(action="Tap", element=[x,y])
                                         ?: action.fields["targetText"] ?: action.fields["target_text"]
                 val index = action.fields["index"]?.trim()?.toIntOrNull() ?: 0
                 
-                // 如果提供了坐标，先点击该位置激活输入框
                 val element = parsePoint(action.fields["element"])
                         ?: parsePoint(action.fields["point"])
                 if (element != null) {
@@ -1314,7 +1403,7 @@ do(action="Tap", element=[x,y])
                     delay(50)
                     service.clickAwait(x, y)
                     AutomationOverlay.restoreVisibility()
-                    delay(300) // 等待输入框激活
+                    delay(300)
                 }
 
                 onLog("执行：Type(${inputText.take(40)})")
@@ -1333,7 +1422,6 @@ do(action="Tap", element=[x,y])
                             service.setTextOnFocused(inputText)
                         }
                 
-                // 如果失败，尝试寻找并点击第一个可编辑的输入框
                 if (!ok) {
                     onLog("输入失败，尝试查找并激活输入框…")
                     val inputClicked = service.clickFirstEditableElement()
@@ -1360,7 +1448,6 @@ do(action="Tap", element=[x,y])
                         throw TakeOverException(confirmMsg)
                     }
                 }
-
 
                 val resourceId = action.fields["resourceId"] ?: action.fields["resource_id"]
                 val contentDesc = action.fields["contentDesc"] ?: action.fields["content_desc"]
@@ -1400,9 +1487,8 @@ do(action="Tap", element=[x,y])
                     val x = (xRel / 1000.0f) * screenW
                     val y = (yRel / 1000.0f) * screenH
                     onLog("执行：Tap($xRel,$yRel)")
-                    // 临时隐藏悬浮窗，防止点击到悬浮窗
                     AutomationOverlay.temporaryHide()
-                    delay(50) // 等待悬浮窗隐藏
+                    delay(50)
                     val ok = service.clickAwait(x, y)
                     AutomationOverlay.restoreVisibility()
                     service.awaitWindowEvent(beforeWindowEventTime, timeoutMs = 1400L)
@@ -1418,7 +1504,6 @@ do(action="Tap", element=[x,y])
                 val x = (element.first / 1000.0f) * screenW
                 val y = (element.second / 1000.0f) * screenH
                 onLog("执行：Long Press(${element.first},${element.second})")
-                // 临时隐藏悬浮窗
                 AutomationOverlay.temporaryHide()
                 delay(50)
                 val ok = service.clickAwait(x, y, durationMs = 520L)
@@ -1435,7 +1520,6 @@ do(action="Tap", element=[x,y])
                 val x = (element.first / 1000.0f) * screenW
                 val y = (element.second / 1000.0f) * screenH
                 onLog("执行：Double Tap(${element.first},${element.second})")
-                // 临时隐藏悬浮窗
                 AutomationOverlay.temporaryHide()
                 delay(50)
                 val ok1 = service.clickAwait(x, y, durationMs = 60L)
@@ -1474,7 +1558,6 @@ do(action="Tap", element=[x,y])
                 val ex = (exRel / 1000.0f) * screenW
                 val ey = (eyRel / 1000.0f) * screenH
                 onLog("执行：Swipe($sxRel,$syRel -> $exRel,$eyRel, ${dur}ms)")
-                // 临时隐藏悬浮窗
                 AutomationOverlay.temporaryHide()
                 delay(50)
                 val ok = service.swipeAwait(sx, sy, ex, ey, dur)
@@ -1531,7 +1614,6 @@ do(action="Tap", element=[x,y])
     }
 
         private fun looksSensitive(uiDump: String): Boolean {
-        // 降低敏感度：仅在真正付款/验证输入场景触发
         val highRisk = listOf(
             "支付密码", "银行卡", "信用卡", "卡号", "cvv", "安全码",
             "验证码", "短信验证码", "otp", "一次性密码", "动态口令",
@@ -1540,16 +1622,14 @@ do(action="Tap", element=[x,y])
         return highRisk.any { uiDump.contains(it, ignoreCase = true) }
         }
 
-    /** 估算文本的token数量（中文约2字符=1token，英文约4字符=1token） */
     private fun estimateTokens(text: String): Int {
         var count = 0
         for (c in text) {
-            count += if (c.code > 127) 1 else 1 // 简化：每个字符约0.5-1 token
+            count += if (c.code > 127) 1 else 1
         }
         return (count * 0.6).toInt().coerceAtLeast(1)
     }
 
-    /** 估算消息列表的总token数 */
     private fun estimateHistoryTokens(history: List<ChatRequestMessage>): Int {
         var total = 0
         for (msg in history) {
@@ -1564,7 +1644,7 @@ do(action="Tap", element=[x,y])
                                 val text = item["text"] as? String ?: ""
                                 total += estimateTokens(text)
                             } else if (type == "image_url") {
-                                total += 1500 // 图片token估算
+                                total += 1500
                             }
                         }
                     }
@@ -1574,13 +1654,10 @@ do(action="Tap", element=[x,y])
         return total
     }
 
-    /** 裁剪历史，保留system和最近几轮对话 */
     private fun trimHistory(history: MutableList<ChatRequestMessage>, maxTokens: Int, maxTurns: Int) {
-        // 始终保留system消息
         if (history.isEmpty()) return
         val systemMsg = history.firstOrNull { it.role == "system" }
         
-        // 移除所有历史消息中的图片，只保留文本
         for (i in history.indices) {
             val msg = history[i]
             if (msg.content is List<*>) {
@@ -1593,13 +1670,10 @@ do(action="Tap", element=[x,y])
             }
         }
 
-        // 如果仍然超出限制，删除最早的对话轮次
         while (history.size > 2 && estimateHistoryTokens(history) > maxTokens) {
-            // 找到第一个非system的消息删除
             val removeIndex = history.indexOfFirst { it.role != "system" }
             if (removeIndex >= 0) {
                 history.removeAt(removeIndex)
-                // 如果下一条是assistant，也删除
                 if (removeIndex < history.size && history[removeIndex].role == "assistant") {
                     history.removeAt(removeIndex)
                 }
@@ -1608,14 +1682,12 @@ do(action="Tap", element=[x,y])
             }
         }
 
-        // 限制对话轮次
         var turns = 0
         var i = history.size - 1
         while (i >= 0 && turns < maxTurns * 2) {
             if (history[i].role != "system") turns++
             i--
         }
-        // 删除超出的历史
         val keepFrom = (i + 1).coerceAtLeast(if (systemMsg != null) 1 else 0)
         while (history.size > keepFrom + turns) {
             val idx = history.indexOfFirst { it.role != "system" }
@@ -1624,11 +1696,9 @@ do(action="Tap", element=[x,y])
         }
     }
 
-    /** 截断UI树，只保留关键信息 */
     private fun truncateUiTree(uiDump: String, maxChars: Int): String {
         if (uiDump.length <= maxChars) return uiDump
         
-        // 保留开头和结尾
         val headSize = (maxChars * 0.6).toInt()
         val tailSize = maxChars - headSize - 50
         
