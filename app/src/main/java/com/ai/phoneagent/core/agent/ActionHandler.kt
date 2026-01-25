@@ -1,3 +1,35 @@
+﻿/*
+ * =====================================================================================
+ * 文件：ActionHandler.kt
+ * 状态：已废弃 (Deprecated)
+ * 替代：com.ai.phoneagent.core.executor.ActionExecutor
+ *       com.ai.phoneagent.core.parser.ActionParser
+ *       com.ai.phoneagent.core.cache.ScreenshotManager
+ * 删除时间：待定（保留以便回滚）
+ * =====================================================================================
+ *
+ * 原功能：动作处理器，负责执行解析后的Agent动作
+ *
+ * 重构说明：
+ * - 原 ActionHandler 职责过多（截图、UI树获取、动作执行）
+ * - 重构为多个单一职责组件：
+ *   * ActionExecutor: 动作执行
+ *   * ActionParser: 动作解析
+ *   * ScreenshotManager: 截图管理
+ *
+ * 主要变化：
+ * 1. 分离关注点：每个类只做一件事
+ * 2. 可配置的参数（如截图质量、UI树截断长度等）
+ * 3. 更好的错误处理和日志
+ * 4. 智能Tap+Type合并执行
+ *
+ * 迁移指南：
+ * - 替换 takeScreenshot() 为 ScreenshotManager
+ * - 替换 getUIHierarchy() 为直接调用 service
+ * - 替换 executeAction() 为 ActionExecutor
+ *
+ * 保留此文件以便必要时回滚，建议在充分测试后删除
+ *
 package com.ai.phoneagent.core.agent
 
 import android.content.Context
@@ -59,12 +91,12 @@ class ActionHandler(
         // 执行工具
         return try {
             val result = toolHandler.executeTool(tool)
-            
+
             // 添加延迟，让UI有时间更新
             if (result.success) {
                 delay(300)
             }
-            
+
             result
         } catch (e: Exception) {
             Log.e(TAG, "Error executing action: $actionName", e)
@@ -120,7 +152,7 @@ class ActionHandler(
 
         val maxNodes = 30
         val uiTree = service.getUiHierarchy(format = "xml", detail = "minimal", maxNodes = maxNodes)
-        
+
         // 限制长度
         return if (uiTree.length > maxChars) {
             uiTree.substring(0, maxChars) + "\n... (已截断)"
@@ -129,3 +161,4 @@ class ActionHandler(
         }
     }
 }
+*/

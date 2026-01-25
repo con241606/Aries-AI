@@ -1,4 +1,4 @@
-# Aries AI
+﻿# Aries AI
 
 ## License
 
@@ -22,7 +22,7 @@ or official status.
 If you publish a fork to any app store, you MUST:
 1) use a different app name,
 2) use different icon/logo and promotional images,
-3) use a different Android applicationId (package name) than the official one: io.github.zg0704666.ariesai.
+3) use a different Android applicationId (package name) than the official one: com.ai.phoneagent.
 
 ## Compliance (Source Code Offer)
 

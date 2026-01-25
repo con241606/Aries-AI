@@ -1,4 +1,4 @@
-package com.ai.phoneagent.speech
+﻿package com.ai.phoneagent.speech
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -145,7 +145,7 @@ class SherpaSpeechRecognizer(private val context: Context) {
 
     private fun createRecognizer(): Boolean {
         val modelDirName = "sherpa-ncnn-streaming-zipformer-bilingual-zh-en-2023-02-13"
-        val assetModelDir = "sherpa-models/$modelDirName"
+        val assetModelDir = "sherpa-models/models/$modelDirName"
 
         val requiredFiles = listOf(
             "encoder_jit_trace-pnnx.ncnn.param",

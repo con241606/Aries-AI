@@ -1,8 +1,9 @@
-package com.ai.phoneagent.core.tools
+﻿package com.ai.phoneagent.core.tools
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import com.ai.phoneagent.PhoneAgentAccessibilityService
 import java.util.LinkedHashMap
 
 /**
@@ -526,5 +527,15 @@ object AppPackageManager {
         appNameToPackage.clear()
         synchronized(resolveCache) { resolveCache.clear() }
         lastUpdateTime = 0L
+    }
+    
+    /**
+     * 根据应用标签解析包名（兼容旧API）
+     */
+    fun resolvePackageByLabel(
+        service: PhoneAgentAccessibilityService,
+        appName: String
+    ): String? {
+        return resolvePackageName(appName)
     }
 }
