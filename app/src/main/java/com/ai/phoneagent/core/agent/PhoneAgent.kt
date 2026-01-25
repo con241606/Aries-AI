@@ -1,3 +1,35 @@
+/*
+ * =====================================================================================
+ * 文件：PhoneAgent.kt
+ * 状态：已废弃 (Deprecated)
+ * 替代：com.ai.phoneagent.UiAutomationAgent
+ * 删除时间：待定（保留以便回滚）
+ * =====================================================================================
+ *
+ * 原功能：Aries AI - AI驱动的手机自动化Agent
+ *
+ * 重构说明：
+ * - 原 PhoneAgent 类过于庞大，职责不清
+ * - 重构为 UiAutomationAgent，采用清晰的分层架构：
+ *   * 配置层：AgentConfiguration
+ *   * 解析层：ActionParser
+ *   * 执行层：ActionExecutor
+ *   * 缓存层：ScreenshotManager
+ *   * 模板层：PromptTemplates
+ *
+ * 主要变化：
+ * 1. 单一职责：每个组件只做一件事
+ * 2. 更好的可测试性：通过接口抽象依赖
+ * 3. 更清晰的错误处理和重试机制
+ * 4. 增强的 UI 树处理能力
+ *
+ * 迁移指南：
+ * - 替换 PhoneAgent 为 UiAutomationAgent
+ * - 替换 AgentConfig 为 AgentConfiguration
+ * - 替换 ActionHandler 为 ActionExecutor + ActionParser
+ *
+ * 保留此文件以便必要时回滚，建议在充分测试后删除
+ *
 package com.ai.phoneagent.core.agent
 
 import android.content.Context
@@ -305,7 +337,7 @@ action: do(...)/finish(...)
 
             // 应用内容过滤 - 去除过度的敏感检查
             val filteredResponse = ContentFilter.sanitizeModelOutput(responseText)
-            
+
             // 5. 解析动作
             val action = parseActionWithRepair(
                 apiKey = apiKey,
@@ -385,18 +417,18 @@ action: do(...)/finish(...)
     ): String {
         val sb = StringBuilder()
         sb.appendLine("【第 $step 步观察】")
-        
+
         if (screenshot != null) {
             sb.appendLine("屏幕截图 (${screenshot.width}x${screenshot.height}):")
             sb.appendLine("data:image/png;base64,${screenshot.base64Data}")
         } else {
             sb.appendLine("(未能获取截图)")
         }
-        
+
         sb.appendLine()
         sb.appendLine("UI层次结构:")
         sb.appendLine(uiTree)
-        
+
         return sb.toString()
     }
 
@@ -421,7 +453,7 @@ action: do(...)/finish(...)
         responseText: String
     ): ParsedAgentAction {
         var action = parseAgentAction(responseText)
-        
+
         if (action.metadata == "do" || action.metadata == "finish") {
             return action
         }
@@ -429,31 +461,31 @@ action: do(...)/finish(...)
         // 尝试修复
         repeat(config.maxParseRepairs) { attempt ->
             Log.d(TAG, "Step $step: Attempting parse repair ${attempt + 1}/${config.maxParseRepairs}")
-            
+
             val repairPrompt = """
                 你的输出格式不正确。请严格按照以下格式重新输出：
-                
+
                 thinking: [你的思考过程]
                 action: do(动作名称, 参数1=值1, 参数2=值2)
-                
+
                 或者如果任务完成：
                 action: finish(message=完成信息)
             """.trimIndent()
-            
+
             messages.add(ChatRequestMessage(role = "user", content = repairPrompt))
-            
+
             val repairResult = requestModelWithRetry(apiKey, model, messages, step)
             if (repairResult.isSuccess) {
                 val repaired = repairResult.getOrNull() ?: ""
                 messages.add(ChatRequestMessage(role = "assistant", content = repaired))
-                
+
                 action = parseAgentAction(repaired)
                 if (action.metadata == "do" || action.metadata == "finish") {
                     return action
                 }
             }
         }
-        
+
         return action
     }
 
@@ -462,20 +494,20 @@ action: do(...)/finish(...)
      */
     private fun parseAgentAction(text: String): ParsedAgentAction {
         val trimmed = text.trim()
-        
+
         // 提取action行
         val actionLine = Regex("action:\\s*(.+?)(?=\\n|$)", RegexOption.IGNORE_CASE)
             .find(trimmed)?.groupValues?.getOrNull(1)?.trim() ?: trimmed
-        
+
         // 解析 do(...) 或 finish(...)
         val doMatch = Regex("""do\s*\(\s*([^,\)]+)\s*(?:,\s*(.+?))?\s*\)""", RegexOption.DOT_MATCHES_ALL)
             .find(actionLine)
-        
+
         if (doMatch != null) {
             val actionName = doMatch.groupValues[1].trim()
             val paramsStr = doMatch.groupValues.getOrNull(2)?.trim() ?: ""
             val fields = parseParameters(paramsStr)
-            
+
             return ParsedAgentAction(
                 metadata = "do",
                 actionName = actionName,
@@ -483,14 +515,14 @@ action: do(...)/finish(...)
                 raw = text
             )
         }
-        
+
         val finishMatch = Regex("""finish\s*\(\s*(.+?)\s*\)""", RegexOption.DOT_MATCHES_ALL)
             .find(actionLine)
-        
+
         if (finishMatch != null) {
             val paramsStr = finishMatch.groupValues[1].trim()
             val fields = parseParameters(paramsStr)
-            
+
             return ParsedAgentAction(
                 metadata = "finish",
                 actionName = null,
@@ -498,7 +530,7 @@ action: do(...)/finish(...)
                 raw = text
             )
         }
-        
+
         // 无法解析
         return ParsedAgentAction(
             metadata = "error",
@@ -513,10 +545,10 @@ action: do(...)/finish(...)
      */
     private fun parseParameters(paramsStr: String): Map<String, String> {
         if (paramsStr.isEmpty()) return emptyMap()
-        
+
         val params = mutableMapOf<String, String>()
         val parts = paramsStr.split(",")
-        
+
         for (part in parts) {
             val trimmed = part.trim()
             val eqIndex = trimmed.indexOf('=')
@@ -528,7 +560,7 @@ action: do(...)/finish(...)
                 params[key] = value
             }
         }
-        
+
         return params
     }
 
@@ -583,12 +615,12 @@ action: do(...)/finish(...)
         if (t == null) return false
         if (t is CancellationException) return false
         if (t is IOException) return true
-        
+
         // 检查HTTP错误码
         val message = t.message ?: ""
         if (message.contains("429") || message.contains("rate limit", ignoreCase = true)) return true
         if (message.contains("500") || message.contains("503")) return true
-        
+
         return false
     }
 
@@ -612,7 +644,7 @@ action: do(...)/finish(...)
             // 保留最近的N轮
             val recent = messages.takeLast(config.maxHistoryTurns * 2)
             toKeep.addAll(recent)
-            
+
             messages.clear()
             messages.addAll(toKeep)
         }
@@ -623,9 +655,10 @@ action: do(...)/finish(...)
      */
     private suspend fun awaitIfPaused(isPausedFlow: StateFlow<Boolean>?) {
         if (isPausedFlow == null) return
-        
+
         while (isPausedFlow.value) {
             delay(200)
         }
     }
 }
+*/

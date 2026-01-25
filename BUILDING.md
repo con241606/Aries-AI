@@ -1,4 +1,4 @@
-# Phone Agent 编译指南
+﻿# Phone Agent 编译指南
 
 > 本文档提供完整的环境搭建、依赖安装、项目配置和编译步骤，帮助新成员快速开始开发。
 
@@ -24,10 +24,16 @@
 |------|----------|----------|----------|
 | JDK | 17 | 17 (Temurin) | https://adoptium.net/temurin/releases/ |
 | Android Studio | Hedgehog (2023.1.1) | Iguana (2023.2.1) | https://developer.android.com/studio |
-| Gradle | 8.5 | 8.5 | 自动随Android Studio安装 |
+| Gradle | 以Wrapper为准 | 以Wrapper为准 | 使用项目自带gradlew |
 | Git | 2.30+ | 2.40+ | https://git-scm.com/downloads |
 
-### 1.2 版本检查
+### 1.2 Android SDK 要求
+
+请确保已安装 Android SDK Platform：
+
+- **Android 36 (API 36)**
+
+### 1.3 版本检查
 
 ```bash
 # 检查JDK版本
@@ -40,7 +46,7 @@ git --version
 
 # 检查Gradle版本（在项目根目录）
 ./gradlew --version
-# 应输出：Gradle 8.5
+# 以项目 Gradle Wrapper 输出为准
 ```
 
 ### 1.3 环境变量配置
@@ -115,12 +121,12 @@ adb --version
 
 ```bash
 # HTTPS方式（推荐）
-git clone https://github.com/your-org/phone-agent.git
-cd phone-agent
+git clone https://github.com/ZG0704666/Aries-AI.git
+cd Aries-AI
 
 # SSH方式（需要配置SSH密钥）
-git clone git@github.com:your-org/phone-agent.git
-cd phone-agent
+git clone git@github.com:ZG0704666/Aries-AI.git
+cd Aries-AI
 ```
 
 ### 3.2 配置本地仓库
@@ -239,60 +245,11 @@ Gradle VM options:
 
 ```
 Language version: 2.0
-Target JVM version: 17
+Target JVM version: 11
 API version: 1.7
 ```
 
-### 5.3 代码风格配置
-
-#### 5.3.1 配置ktlint
-
-在`app/build.gradle.kts`中添加：
-
-```kotlin
-plugins {
-    alias(libs.plugins.ktlint)
-}
-
-ktlint {
-    version.set(libs.versions.ktlint)
-    android.set(true)
-    outputToConsole.set(true)
-    outputColorName.set("RED")
-}
-```
-
-运行代码检查：
-```bash
-./gradlew ktlintCheck
-```
-
-自动格式化：
-```bash
-./gradlew ktlintFormat
-```
-
-#### 5.3.2 配置detekt（可选）
-
-在`app/build.gradle.kts`中添加：
-
-```kotlin
-plugins {
-    id("io.gitlab.arturbos.detekt") version "1.23.0"
-}
-
-detekt {
-    config.setFrom("$projectDir/config/detekt/detekt.yml")
-    buildUponDefaultConfig = true
-}
-```
-
-运行代码检查：
-```bash
-./gradlew detekt
-```
-
-### 5.4 同步Gradle
+### 5.3 同步Gradle
 
 1. 打开项目后，Android Studio会自动同步Gradle
 2. 等待同步完成（右下角进度条）
@@ -482,28 +439,6 @@ File > Settings > Appearance & Behavior > System Settings > Memory
 Heap Size: 4096 MB
 ```
 
-### 7.6 代码风格警告
-
-**问题**：ktlint检查失败
-
-**解决方案**：
-
-1. 自动修复：
-
-```bash
-.\gradlew ktlintFormat
-```
-
-2. 手动修复警告代码
-
-3. 查看ktlint规则：
-
-```bash
-.\gradlew ktlintCheck
-```
-
----
-
 ## 📚 八、相关文档
 
 - [FEISHU_COLLABORATION.md](./FEISHU_COLLABORATION.md) - 飞书协作文档模板
@@ -519,7 +454,8 @@ Heap Size: 4096 MB
 
 - [ ] JDK 17已安装并配置
 - [ ] Android Studio Hedgehog+已安装
-- [ ] Gradle 8.5已配置
+- [ ] 已通过 `gradlew` 验证Gradle Wrapper可用
+- [ ] 已安装 Android SDK Platform 36 (API 36)
 - [ ] 项目已克隆到本地
 - [ ] VSCode推荐插件已安装
 - [ ] Android Studio推荐插件已安装
@@ -529,6 +465,6 @@ Heap Size: 4096 MB
 
 ---
 
-**文档版本**：v1.0
-**最后更新**：2026-01-09
-**维护人**：项目负责人
+**文档版本**：v1.1
+**最后更新**：2026-01-25
+**维护人**：ZG666

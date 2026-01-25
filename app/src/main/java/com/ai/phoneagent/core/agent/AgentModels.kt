@@ -1,8 +1,26 @@
 package com.ai.phoneagent.core.agent
 
 /**
- * Agent配置
+ * 解析的Agent动作
+ * 保留：被 UiAutomationAgent、ActionParser、ActionExecutor 等核心模块使用
  */
+data class ParsedAgentAction(
+    val metadata: String,           // "do" 或 "finish"
+    val actionName: String?,        // 动作名称（如 tap, swipe）
+    val fields: Map<String, String>, // 动作参数
+    val raw: String = ""            // 原始响应
+)
+
+/*
+ * 以下代码已废弃，由 UiAutomationAgent + AgentConfiguration 重构替代
+ * 保留注释以便追溯，删除时间：待定
+ */
+
+/**
+ * Agent配置
+ * @deprecated 使用 com.ai.phoneagent.core.config.AgentConfiguration 替代
+ */
+@Deprecated("重构后由 AgentConfiguration 替代")
 data class AgentConfig(
     val maxSteps: Int = 100,                     // 最大执行步数（提高到100，实际由任务决定）
     val stepDelayMs: Long = 160L,                // 每步之间的延迟
@@ -20,21 +38,13 @@ data class AgentConfig(
 
 /**
  * 步骤结果
+ * @deprecated 由 UiAutomationAgent.AgentResult 替代
  */
+@Deprecated("重构后由 UiAutomationAgent.AgentResult 替代")
 data class StepResult(
     val success: Boolean,
     val finished: Boolean,
     val action: ParsedAgentAction?,
     val thinking: String?,
     val message: String? = null
-)
-
-/**
- * 解析的Agent动作
- */
-data class ParsedAgentAction(
-    val metadata: String,           // "do" 或 "finish"
-    val actionName: String?,        // 动作名称（如 tap, swipe）
-    val fields: Map<String, String>, // 动作参数
-    val raw: String = ""            // 原始响应
 )
