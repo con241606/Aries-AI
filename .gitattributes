@@ -1,0 +1,28 @@
+# .gitattributes — enforce LF (Unix) line endings for text/code files
+# Treat files as text and let Git normalize line endings
+* text=auto
+
+# Force LF for common source and text files
+*.kts text eol=lf
+*.kt text eol=lf
+*.java text eol=lf
+*.gradle text eol=lf
+*.gradle.kts text eol=lf
+*.xml text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Binary files — do not attempt to normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.class binary
+*.jar binary
