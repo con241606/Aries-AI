@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aries AI 文档中心</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          animation: {
+            'ring-flow': 'ringFlow 4.5s linear infinite',
+            'ring-pulse': 'ringPulse 2.8s ease-in-out infinite',
+          },
+          keyframes: {
+            ringFlow: {
+              '0%': { transform: 'rotate(0deg)' },
+              '100%': { transform: 'rotate(360deg)' },
+            },
+            ringPulse: {
+              '0%, 100%': { opacity: '0.55' },
+              '50%': { opacity: '0.95' },
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .scrollbar-visible {
+      scrollbar-width: thin;
+    }
+
+    .scrollbar-visible::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .scrollbar-visible::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .scrollbar-visible::-webkit-scrollbar-thumb {
+      border-radius: 9999px;
+      background: rgba(255,255,255,0.22);
+      border: 2px solid rgba(0,0,0,0.15);
+    }
+
+    html.dark .scrollbar-visible::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    html.dark .scrollbar-visible::-webkit-scrollbar-track {
+      background: rgba(255,255,255,0.04);
+      border-radius: 9999px;
+    }
+
+    html.dark .scrollbar-visible::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.14);
+      border: 2px solid rgba(0,0,0,0.26);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset;
+    }
+
+    html.dark .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.20);
+    }
+
+    html.dark .scrollbar-visible {
+      scrollbar-color: rgba(255,255,255,0.22) rgba(255,255,255,0.06);
+      scrollbar-width: thin;
+    }
+
+    html.light .scrollbar-visible::-webkit-scrollbar-thumb {
+      background: rgba(15,23,42,0.18);
+      border-color: rgba(255,255,255,0.65);
+    }
+
+    .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.32);
+    }
+
+    html.light .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+      background: rgba(15,23,42,0.26);
+    }
+
+    .bg-grid {
+      background-image:
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
+      background-size: 22px 22px;
+    }
+
+    html.dark .page-bg {
+      background: radial-gradient(1200px 600px at 50% 20%, rgba(88, 28, 135, 0.35), transparent 60%),
+        radial-gradient(900px 500px at 15% 35%, rgba(30, 64, 175, 0.35), transparent 55%),
+        radial-gradient(900px 500px at 85% 55%, rgba(190, 24, 93, 0.25), transparent 60%),
+        radial-gradient(circle at center, #0a0a12 0%, #000000 100%);
+    }
+
+    .constellation-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .35s ease;
+    }
+
+    html.dark .constellation-layer {
+      opacity: 1;
+    }
+
+    html.light .page-bg {
+      background: radial-gradient(900px 520px at 50% 10%, rgba(37, 99, 235, 0.18), transparent 58%),
+        radial-gradient(980px 560px at 20% 45%, rgba(124, 58, 237, 0.16), transparent 60%),
+        radial-gradient(900px 520px at 85% 35%, rgba(219, 39, 119, 0.10), transparent 62%),
+        #eef2ff;
+    }
+
+    html.light .constellation-layer {
+      opacity: 0;
+    }
+
+    html.light #meteor-canvas {
+      opacity: 0;
+    }
+
+    html.light .brand-icon {
+      background: rgba(255, 255, 255, 0.92);
+      color: #0f172a;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.10);
+    }
+
+    .glass {
+      backdrop-filter: blur(26px);
+      -webkit-backdrop-filter: blur(26px);
+      border-radius: 16px;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .glass::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(900px 260px at 20% 0%, rgba(255,255,255,0.16), transparent 60%),
+        radial-gradient(700px 240px at 85% 20%, rgba(255,255,255,0.10), transparent 62%);
+      opacity: 0.65;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .glass::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 2px 2px, rgba(255,255,255,0.10) 1px, transparent 0);
+      background-size: 18px 18px;
+      opacity: 0.08;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    html.light .glass::after {
+      opacity: 0.04;
+    }
+
+    html.dark .glass {
+      background: rgba(10, 10, 16, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow:
+        0 12px 36px rgba(0, 0, 0, 0.32),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+      backdrop-filter: blur(30px);
+      -webkit-backdrop-filter: blur(30px);
+    }
+
+    html.light .glass {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      box-shadow:
+        0 16px 46px rgba(15, 23, 42, 0.10),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    html.dark .doc-card,
+    html.dark pre.doc-md,
+    html.dark .doc-accordion {
+      background: rgba(10, 10, 16, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow:
+        0 12px 36px rgba(0, 0, 0, 0.32),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    html.light .doc-card,
+    html.light pre.doc-md,
+    html.light .doc-accordion {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      box-shadow:
+        0 16px 46px rgba(15, 23, 42, 0.10),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .glass > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .nav-item {
+      border-radius: 10px;
+      transition: background-color .2s ease, color .2s ease;
+    }
+
+    html.dark .nav-item:hover { background: rgba(255,255,255,0.06); }
+    html.light .nav-item:hover { background: rgba(0,0,0,0.04); }
+
+    .capsule {
+      position: relative;
+      border-radius: 9999px;
+      overflow: hidden;
+      isolation: isolate;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    html.dark .capsule {
+      outline: none;
+    }
+
+    .capsule::before {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: inherit;
+      background: conic-gradient(from 180deg, rgba(96,165,250,0.0), rgba(96,165,250,0.95), rgba(192,132,252,0.95), rgba(244,114,182,0.95), rgba(96,165,250,0.0));
+      filter: blur(10px);
+      opacity: 0.55;
+      animation: ringFlow 4.5s linear infinite;
+      z-index: -2;
+    }
+
+    .capsule::after {
+      content: '';
+      position: absolute;
+      inset: 1px;
+      border-radius: inherit;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.22);
+      box-shadow:
+        0 10px 30px rgba(0,0,0,0.26),
+        0 0 0 1px rgba(255,255,255,0.10) inset;
+      z-index: -1;
+      transition: background-color .25s ease;
+    }
+
+    html.dark .capsule::after {
+      background:
+        radial-gradient(900px 240px at 20% 0%, rgba(255,255,255,0.12), transparent 62%),
+        radial-gradient(700px 240px at 85% 20%, rgba(255,255,255,0.10), transparent 64%),
+        radial-gradient(900px 300px at 50% 120%, rgba(56,189,248,0.08), transparent 60%),
+        rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.12);
+      box-shadow:
+        0 10px 26px rgba(0,0,0,0.16),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    html.dark button.capsule,
+    html.dark a.capsule {
+      background: transparent !important;
+    }
+
+    html.dark button.capsule:hover,
+    html.dark a.capsule:hover {
+      filter: brightness(1.06);
+    }
+
+    html.light .capsule::after {
+      background: rgba(255,255,255,0.82);
+      border-color: rgba(15,23,42,0.10);
+      box-shadow:
+        0 16px 42px rgba(15,23,42,0.12),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .capsule:hover::before {
+      opacity: 0.95;
+      animation-duration: 3.5s;
+    }
+
+    .capsule:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 36px rgba(96,165,250,0.15);
+    }
+
+    .hero-pill {
+      box-shadow:
+        0 18px 60px rgba(0,0,0,0.35),
+        0 0 0 1px rgba(255,255,255,0.06) inset;
+    }
+
+    html.light .hero-pill {
+      box-shadow:
+        0 16px 46px rgba(15, 23, 42, 0.10),
+        0 0 0 1px rgba(15, 23, 42, 0.06) inset;
+    }
+
+    .doc-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px;
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease, background-color .25s ease;
+      min-height: 116px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      box-shadow:
+        0 16px 46px rgba(15, 23, 42, 0.10),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .doc-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      flex-shrink: 0;
+    }
+
+    html.light .doc-icon {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10);
+    }
+
+    .doc-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        radial-gradient(800px 220px at 15% 0%, rgba(255,255,255,0.15), transparent 60%),
+        radial-gradient(600px 200px at 85% 15%, rgba(255,255,255,0.10), transparent 62%);
+      opacity: 0.7;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .doc-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background-image:
+        radial-gradient(circle at 2px 2px, rgba(255,255,255,0.10) 1px, transparent 0);
+      background-size: 18px 18px;
+      opacity: 0.07;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .doc-card > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    html.dark .doc-card {
+      background: rgba(18, 18, 24, 0.08);
+      border: 1px solid rgba(255,255,255,0.20);
+      backdrop-filter: blur(26px);
+      -webkit-backdrop-filter: blur(26px);
+      box-shadow:
+        0 12px 36px rgba(0,0,0,0.30),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    html.light .doc-card {
+      background: rgba(255,255,255,0.66);
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow:
+        0 10px 28px rgba(15,23,42,0.10),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .doc-card:hover {
+      transform: translateY(-3px);
+    }
+
+    html.dark .doc-card:hover {
+      border-color: rgba(255,255,255,0.20);
+      box-shadow:
+        0 18px 58px rgba(0,0,0,0.62),
+        0 0 0 1px rgba(255,255,255,0.07) inset;
+      background: rgba(18, 18, 24, 0.26);
+    }
+
+    html.light .doc-card:hover {
+      border-color: rgba(37,99,235,0.25);
+      box-shadow:
+        0 16px 44px rgba(37,99,235,0.14),
+        0 0 0 1px rgba(37,99,235,0.06) inset;
+    }
+
+    .doc-card .shine {
+      position: absolute;
+      top: 0;
+      left: -120%;
+      width: 80%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.24), transparent);
+      transform: skewX(-18deg);
+      transition: left .75s ease;
+      pointer-events: none;
+      z-index: 2;
+      opacity: 0.8;
+    }
+
+    .doc-card:hover .shine {
+      left: 140%;
+    }
+
+    #meteor-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .35s ease;
+    }
+
+    html.dark #meteor-canvas {
+      opacity: 0.9;
+    }
+
+    html.light #meteor-canvas {
+      opacity: 0;
+    }
+
+    .doc-prose h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .doc-prose h2 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      margin-top: 1.6rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .doc-prose p {
+      line-height: 1.75;
+      margin-top: 0.8rem;
+    }
+
+    .doc-prose ul {
+      margin-top: 0.6rem;
+      padding-left: 1.25rem;
+      list-style: disc;
+    }
+
+    .doc-prose li {
+      margin-top: 0.35rem;
+      line-height: 1.7;
+    }
+
+    .doc-prose code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.92em;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.4rem;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+
+    html.light .doc-prose code {
+      background: rgba(15,23,42,0.05);
+      border: 1px solid rgba(15,23,42,0.08);
+    }
+
+    .md-content h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .md-content h3 {
+      font-size: 1.02rem;
+      font-weight: 800;
+      margin-top: 1.1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .md-content h4 {
+      font-size: 0.98rem;
+      font-weight: 800;
+      margin-top: 0.9rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .md-content li {
+      margin-top: 0.35rem;
+    }
+
+    .md-content p {
+      margin-top: 0.65rem;
+      margin-bottom: 0.65rem;
+    }
+
+    .md-content ul,
+    .md-content ol {
+      margin-top: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .md-content hr {
+      border: 0;
+      height: 1px;
+      margin: 1.2rem 0;
+      background: rgba(255,255,255,0.12);
+    }
+
+    html.light .md-content hr {
+      background: rgba(15,23,42,0.10);
+    }
+
+    .md-content pre {
+      margin-top: 0.9rem;
+      padding: 14px 16px;
+      border-radius: 14px;
+      overflow: auto;
+      position: relative;
+      background: rgba(10, 10, 18, 0.10);
+      border: 1px solid rgba(255,255,255,0.20);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      box-shadow:
+        0 12px 36px rgba(0,0,0,0.30),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    .md-content pre::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(900px 240px at 20% 0%, rgba(255,255,255,0.08), transparent 60%),
+        radial-gradient(700px 240px at 85% 20%, rgba(255,255,255,0.06), transparent 62%);
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    .md-content pre::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.12) 1px, transparent 0);
+      background-size: 14px 14px;
+      opacity: 0.08;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    html.light .md-content pre {
+      background: rgba(255,255,255,0.78);
+      border-color: rgba(15,23,42,0.10);
+      box-shadow:
+        0 18px 54px rgba(15,23,42,0.12),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .table-wrap {
+      border-radius: 14px;
+      overflow: auto;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.02);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow:
+        0 12px 36px rgba(0,0,0,0.26),
+        0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
+    html.light .table-wrap {
+      border-color: rgba(15,23,42,0.10);
+      background: rgba(255,255,255,0.78);
+      box-shadow:
+        0 18px 54px rgba(15,23,42,0.12),
+        0 0 0 1px rgba(15,23,42,0.04) inset;
+    }
+
+    .md-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
+      background: transparent;
+      font-size: 0.95rem;
+    }
+
+    .md-content th,
+    .md-content td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      vertical-align: top;
+    }
+
+    html.light .md-content th,
+    html.light .md-content td {
+      border-bottom-color: rgba(15,23,42,0.08);
+    }
+
+    .md-content th {
+      font-weight: 800;
+      background: rgba(255,255,255,0.06);
+    }
+
+    html.light .md-content th {
+      background: rgba(15,23,42,0.03);
+    }
+
+    .md-content img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border-radius: 14px;
+      margin-top: 0.9rem;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.18);
+    }
+
+    html.light .md-content img {
+      border-color: rgba(15,23,42,0.10);
+      background: rgba(255,255,255,0.70);
+    }
+
+    .img-slot {
+      border-radius: 14px;
+      border: 1px dashed rgba(255,255,255,0.20);
+      background: rgba(255,255,255,0.06);
+      transition: transform .18s ease, border-color .18s ease, background-color .18s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    html.light .img-slot {
+      border: 1px dashed rgba(15,23,42,0.18);
+      background: rgba(15,23,42,0.03);
+    }
+
+    .img-slot:hover {
+      transform: translateY(-1px);
+      border-color: rgba(96,165,250,0.45);
+      background: rgba(96,165,250,0.08);
+    }
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .lightbox.show {
+      display: flex;
+    }
+
+    .lightbox .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .lightbox .panel {
+      position: relative;
+      max-width: min(980px, 96vw);
+      max-height: 92vh;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 30px 90px rgba(0,0,0,0.70);
+    }
+
+    html.light .lightbox .panel {
+      border: 1px solid rgba(15,23,42,0.10);
+      box-shadow: 0 26px 80px rgba(15,23,42,0.18);
+    }
+
+    .lightbox img {
+      display: block;
+      max-width: 100%;
+      max-height: 92vh;
+      background: rgba(0,0,0,0.25);
+    }
+
+    .lightbox .close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 40px;
+      height: 40px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-overlay .backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.62);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .download-panel {
+      position: relative;
+      width: min(920px, 96vw);
+      max-height: 90vh;
+      overflow: auto;
+      border-radius: 20px;
+      padding: 22px;
+    }
+
+    .download-option {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      transition: transform .18s ease, border-color .18s ease, background-color .18s ease;
+    }
+
+    html.light .download-option {
+      border: 1px solid rgba(15,23,42,0.10);
+      background: rgba(255,255,255,0.64);
+    }
+
+    .download-option:hover {
+      transform: translateY(-2px);
+      border-color: rgba(96,165,250,0.35);
+      background: rgba(96,165,250,0.10);
+    }
+
+    .download-close {
+      width: 44px;
+      height: 44px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #fff;
+      font-weight: 900;
+    }
+  </style>
+</head>
+
+<body data-page="docs" class="dark:text-white text-slate-900 bg-white dark:bg-black">
+
+  <div class="page-bg">
+    <canvas id="constellation-canvas" class="constellation-layer"></canvas>
+    <canvas id="meteor-canvas"></canvas>
+    <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-10 py-4 h-screen flex flex-col">
+      <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 cursor-pointer" onclick="window.location.href='index.html'">
+          <div class="brand-icon w-10 h-10 rounded-xl bg-white/10 text-white font-bold flex items-center justify-center shadow-lg shadow-blue-500/20 border border-white/10">A</div>
+          <div class="font-extrabold text-lg dark:text-white text-slate-900">Aries AI</div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button id="lang-toggle" class="capsule px-5 py-2 text-sm font-semibold transition" type="button" aria-label="切换语言">
+            <span class="relative z-10 inline-flex items-center gap-2">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M2 12h20" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              <span id="lang-label">CN</span>
+            </span>
+          </button>
+          <a id="btn-download-latest" class="capsule px-5 py-2 text-sm font-semibold transition" href="https://github.com/ZG0704666/Aries-AI/releases" target="_blank" rel="noreferrer">
+            <span class="relative z-10">下载最新版</span>
+          </a>
+          <button class="capsule px-5 py-2 text-sm font-semibold transition" onclick="toggleTheme()">
+            <span id="theme-label" class="relative z-10">切换日/夜</span>
+          </button>
+          <a class="capsule px-5 py-2 text-sm font-semibold transition" href="index.html">
+            <span class="relative z-10">返回主页</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0">
+        <aside class="lg:col-span-3 glass p-4 relative" style="z-index: 1;">
+          <div class="text-sm font-semibold dark:text-slate-200 text-slate-800 mb-3">文档导航</div>
+          <nav id="doc-nav" class="space-y-4 text-sm overflow-y-auto scrollbar-visible h-full"></nav>
+        </aside>
+
+        <main class="lg:col-span-9 relative min-h-0" style="z-index: 3;">
+          <div class="glass p-8 sm:p-10 rounded-2xl h-full min-h-0 flex flex-col">
+            <div id="doc-content" class="flex-1 min-h-0 overflow-y-auto pr-2 scrollbar-visible" style="overscroll-behavior: contain;"></div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <script src="./assets/app.js"></script>
+
+  <div id="lightbox" class="lightbox" aria-hidden="true">
+    <div class="overlay"></div>
+    <div class="panel glass">
+      <button id="lightbox-close" class="close" type="button" aria-label="关闭">✕</button>
+      <img id="lightbox-img" alt="" />
+    </div>
+  </div>
+
+  <div id="download-modal" class="modal-overlay" aria-hidden="true">
+    <div class="backdrop"></div>
+    <div class="download-panel glass">
+      <div class="flex items-start gap-4 pr-14">
+        <div class="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center font-extrabold">A</div>
+        <div class="flex-1">
+          <div class="text-xs uppercase tracking-[0.2em] text-sky-300 mb-1">ARIES AI</div>
+          <div class="text-2xl sm:text-3xl font-extrabold">获取安装包</div>
+        </div>
+        <button id="download-modal-close" class="download-close absolute top-5 right-5" type="button" aria-label="关闭">✕</button>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 gap-4">
+        <a id="download-github-link" class="download-option p-6 block" href="#" target="_blank" rel="noopener noreferrer">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <div class="text-lg font-bold">官方直连</div>
+              <div class="mt-1 text-sm dark:text-slate-300 text-slate-600">GitHub Releases 原始链接</div>
+            </div>
+            <div class="text-sky-300 font-bold">官方</div>
+          </div>
+        </a>
+
+        <a id="download-mirror-ghfast" class="download-option p-6 block" href="#" target="_blank" rel="noopener noreferrer">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <div class="text-lg font-bold">镜像加速 1</div>
+              <div class="mt-1 text-sm dark:text-slate-300 text-slate-600">ghfast.top 加速</div>
+            </div>
+            <div class="text-amber-300 font-bold">推荐</div>
+          </div>
+        </a>
+
+        <a id="download-mirror-gitmirror" class="download-option p-6 block" href="#" target="_blank" rel="noopener noreferrer">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <div class="text-lg font-bold">镜像加速 2</div>
+              <div class="mt-1 text-sm dark:text-slate-300 text-slate-600">hub.gitmirror.com 加速</div>
+            </div>
+            <div class="text-cyan-300 font-bold">备用</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="mt-6 pt-5 border-t dark:border-white/10 border-black/10 text-sm dark:text-slate-300 text-slate-600">
+        下载提示：如点击无响应，请右键“复制链接”在新标签页打开，或加 QQ 群：<span class="text-sky-300 font-bold">746439473</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function initDocsCenter() {
+      const contentEl = document.getElementById('doc-content');
+      const navEl = document.getElementById('doc-nav');
+      const langBtn = document.getElementById('lang-toggle');
+      const langLabel = document.getElementById('lang-label');
+      const lightbox = document.getElementById('lightbox');
+      const lightboxImg = document.getElementById('lightbox-img');
+      const lightboxClose = document.getElementById('lightbox-close');
+
+      if (!contentEl || !navEl) return;
+
+      let lang = localStorage.getItem('docs_lang') || 'CN';
+      function setLang(next) {
+        lang = next;
+        localStorage.setItem('docs_lang', lang);
+        if (langLabel) langLabel.textContent = lang;
+        render();
+      }
+      if (langBtn) langBtn.addEventListener('click', () => setLang(lang === 'CN' ? 'EN' : 'CN'));
+      if (langLabel) langLabel.textContent = lang;
+
+      function escapeHtml(str) {
+        return String(str)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function isExternalHref(href) {
+        if (!href) return false;
+        if (href.startsWith('#')) return false;
+        if (href.startsWith('/')) return false;
+        try {
+          const u = new URL(href, location.href);
+          return u.origin !== location.origin;
+        } catch {
+          return false;
+        }
+      }
+
+      function postProcessMarkdown(rootEl) {
+        if (!rootEl) return;
+
+        rootEl.querySelectorAll('a[href]').forEach((a) => {
+          const href = a.getAttribute('href') || '';
+          if (isExternalHref(href)) {
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noreferrer');
+          }
+        });
+
+        rootEl.querySelectorAll('table').forEach((tbl) => {
+          if (tbl.parentElement && tbl.parentElement.classList.contains('table-wrap')) return;
+          const wrap = document.createElement('div');
+          wrap.className = 'table-wrap scrollbar-visible';
+          wrap.style.overflowX = 'auto';
+          wrap.style.marginTop = '0.9rem';
+          tbl.parentNode.insertBefore(wrap, tbl);
+          wrap.appendChild(tbl);
+        });
+      }
+
+      if (window.marked && typeof window.marked.setOptions === 'function') {
+        window.marked.setOptions({
+          gfm: true,
+          tables: true,
+          breaks: false,
+          mangle: false,
+          headerIds: false,
+        });
+      }
+
+      function openLightbox(src, alt) {
+        if (!lightbox || !lightboxImg) return;
+        lightboxImg.src = src;
+        lightboxImg.alt = alt || '';
+        lightbox.classList.add('show');
+        lightbox.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeLightbox() {
+        if (!lightbox || !lightboxImg) return;
+        lightbox.classList.remove('show');
+        lightbox.setAttribute('aria-hidden', 'true');
+        lightboxImg.src = '';
+        lightboxImg.alt = '';
+      }
+
+      if (lightbox) {
+        lightbox.addEventListener('click', (e) => {
+          const t = e.target;
+          if (t && t.classList && t.classList.contains('overlay')) closeLightbox();
+        });
+      }
+      if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeLightbox();
+      });
+
+      const IMG_MAP = {
+        'quick-5min': { download: '', accessibility: '', overlay: '' },
+        'automation-permissions': { accessibility: '', screenshot: '', overlay: '' },
+      };
+
+      async function loadDocText(docName) {
+        if (location.protocol !== 'http:' && location.protocol !== 'https:') {
+          throw new Error('需要通过本地服务器访问（不能直接双击用 file:// 打开）。');
+        }
+
+        const baseDir = location.pathname.replace(/[^/]+$/, '');
+        const fileName = `${encodeURIComponent(docName)}.md`;
+        const cacheBuster = `v=${Date.now()}`;
+        const candidates = [
+          `${location.origin}${baseDir}docs/${fileName}?${cacheBuster}`,
+          `${location.origin}${baseDir}./docs/${fileName}?${cacheBuster}`,
+          `./docs/${fileName}?${cacheBuster}`,
+          `docs/${fileName}?${cacheBuster}`,
+        ];
+
+        let lastErr = null;
+        for (const url of candidates) {
+          try {
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) {
+              lastErr = new Error(`Failed to load ${url}: ${res.status}`);
+              continue;
+            }
+            return await res.text();
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+
+        throw lastErr || new Error('Failed to fetch');
+      }
+
+      function docPage(titleCn, titleEn, docName) {
+        return `
+          <div class="doc-page">
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? escapeHtml(titleCn) : escapeHtml(titleEn)}</h1>
+              <div class="md-content" data-doc="${escapeHtml(docName)}"></div>
+            </div>
+            <div class="doc-page-footer">
+              <div class="text-center text-xs dark:text-slate-400 text-slate-500">关于：本页内容来自仓库文档，随项目更新。若发现不一致，请在 GitHub 提交 Issue/PR。</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function imgSlot(pageId, key, title) {
+        const src = (IMG_MAP[pageId] && IMG_MAP[pageId][key]) ? IMG_MAP[pageId][key] : '';
+        const label = title || ('图片占位：' + key);
+        if (!src) {
+          return `
+            <div class="img-slot px-4 py-4 mt-3" data-img-src="">
+              <div class="text-sm font-semibold">${escapeHtml(label)}</div>
+              <div class="mt-1 text-xs dark:text-slate-400 text-slate-600">点击占位块（后续替换为你上传的截图，并支持点击放大）</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="img-slot p-3 mt-3" data-img-src="${escapeHtml(src)}" data-img-alt="${escapeHtml(label)}">
+            <div class="text-xs dark:text-slate-300 text-slate-600 mb-2">${escapeHtml(label)}（点击查看大图）</div>
+            <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}" class="w-full rounded-xl" />
+          </div>
+        `;
+      }
+
+      const NAV = [
+        {
+          title: { CN: '欢迎', EN: 'Welcome' },
+          items: [{ id: 'home', title: { CN: '文档中心首页', EN: 'Home' } }]
+        },
+        {
+          title: { CN: '开发与共创', EN: 'Co-Create' },
+          items: [
+            { id: 'doc-building', title: { CN: '构建指南（BUILDING）', EN: 'Building Guide' } },
+            { id: 'doc-workflow', title: { CN: '工作流（GIT_WORKFLOW）', EN: 'Git Workflow' } },
+            { id: 'doc-standards', title: { CN: '代码规范（CODING_STANDARDS）', EN: 'Coding Standards' } },
+            { id: 'doc-feishu', title: { CN: '飞书协作（FEISHU）', EN: 'Feishu Collaboration' } },
+          ]
+        },
+        {
+          title: { CN: '常见问题 Q&A', EN: 'Q&A' },
+          items: [{ id: 'faq', title: { CN: '常见问题 Q&A', EN: 'Q&A' } }]
+        },
+      ];
+
+      function buildNav() {
+        navEl.innerHTML = NAV.map(group => {
+          const title = lang === 'CN' ? group.title.CN : group.title.EN;
+          const links = group.items.map(it => {
+            const itTitle = lang === 'CN' ? it.title.CN : it.title.EN;
+            return `<a class="nav-item block px-3 py-2 dark:text-slate-200 text-slate-700" href="#/${escapeHtml(it.id)}">${escapeHtml(itTitle)}</a>`;
+          }).join('');
+          return `
+            <div>
+              <div class="text-xs dark:text-slate-400 text-slate-500 mb-2">${escapeHtml(title)}</div>
+              <div class="space-y-1">${links}</div>
+            </div>
+          `;
+        }).join('') + `
+          <div class="pt-4 border-t dark:border-white/10 border-black/10">
+            <div class="text-xs dark:text-slate-400 text-slate-500 mb-2">${lang === 'CN' ? '外部链接' : 'Links'}</div>
+            <a class="nav-item block px-3 py-2 dark:text-slate-200 text-slate-700" href="https://github.com/ZG0704666/Aries-AI" target="_blank" rel="noreferrer">GitHub</a>
+            <a class="nav-item block px-3 py-2 dark:text-slate-200 text-slate-700" href="https://github.com/ZG0704666/Aries-AI/releases" target="_blank" rel="noreferrer">Releases</a>
+          </div>
+        `;
+      }
+
+      const PAGES = {
+        home: () => {
+          return `
+            <div class="doc-prose">
+              <div class="text-center">
+                <div class="text-3xl sm:text-4xl font-extrabold tracking-tight">${lang === 'CN' ? '欢迎来到 Aries AI 文档中心' : 'Welcome to Aries AI Docs'}</div>
+                <div class="mt-4 text-sm sm:text-base dark:text-slate-300 text-slate-600 leading-relaxed max-w-4xl mx-auto">
+                  ${lang === 'CN'
+                    ? 'Aries AI 是一款“手机上的智能执行助手（Phone Agent）”：你用自然语言下达目标，它能在真实 App 里理解界面并自动完成点击、输入、滑动等操作。'
+                    : 'Aries AI is a mobile Phone Agent that understands UI and executes real app interactions from natural language goals.'}
+                </div>
+              </div>
+              <h2>${lang === 'CN' ? '三步上手' : 'Get started in 3 steps'}</h2>
+              <ol class="mt-3 space-y-2" style="list-style: decimal; padding-left: 1.25rem;">
+                <li>${lang === 'CN' ? '安装：下载并安装最新 APK。' : 'Install: download and install the latest APK.'}</li>
+                <li>${lang === 'CN' ? '授权：开启无障碍（必须），悬浮窗（推荐），截图（按需）。' : 'Permissions: accessibility (required), overlay (recommended), screenshots (optional).'}</li>
+                <li>${lang === 'CN' ? '第一次任务：输入一句话任务并观察悬浮窗日志。' : 'First task: run a one-sentence task and watch overlay logs.'}</li>
+              </ol>
+              <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                <a class="doc-card p-5" href="#/quick-5min"><div class="shine"></div><div class="text-sm font-semibold">${lang === 'CN' ? '快速开始' : 'Quick Start'}</div><div class="mt-1 text-xs dark:text-slate-400 text-slate-500">${lang === 'CN' ? '从安装到跑通一个任务。' : 'Install and complete a first task.'}</div></a>
+                <a class="doc-card p-5" href="#/doc-building"><div class="shine"></div><div class="text-sm font-semibold">${lang === 'CN' ? '开发与共创' : 'Dev & Co-Create'}</div><div class="mt-1 text-xs dark:text-slate-400 text-slate-500">${lang === 'CN' ? '构建、工作流、代码规范与协作。' : 'Build, workflow, standards and collaboration.'}</div></a>
+                <a class="doc-card p-5" href="#/faq"><div class="shine"></div><div class="text-sm font-semibold">${lang === 'CN' ? '常见问题 Q&A' : 'Q&A'}</div><div class="mt-1 text-xs dark:text-slate-400 text-slate-500">${lang === 'CN' ? '集中收录典型问题与解决方案。' : 'Common questions & answers.'}</div></a>
+              </div>
+            </div>
+          `;
+        },
+        'quick-5min': () => {
+          return `
+            <div class="doc-page">
+              <div class="doc-prose">
+                <h1>${lang === 'CN' ? '快速开始（开发）' : 'Quick Start (Dev)'}</h1>
+                <p>${lang === 'CN' ? '本页直接接入项目的 BUILDING.md（编译指南）。如你只想“先跑起来”，优先按这里做。' : 'This page embeds BUILDING.md for building the project.'}</p>
+                <h2>${lang === 'CN' ? '编译指南（BUILDING.md）' : 'BUILDING.md'}</h2>
+                <div class="md-content" data-doc="BUILDING"></div>
+              </div>
+
+              <div class="doc-page-footer">
+                <div class="text-center text-xs dark:text-slate-400 text-slate-500">关于：本页内容来自仓库文档，随项目更新。若发现步骤与实际不一致，请在 GitHub 提交 Issue/PR。</div>
+              </div>
+            </div>
+          `;
+        },
+        'ui-buttons': () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '界面与按钮说明' : 'UI & Controls'}</h1>
+              <p>${lang === 'CN' ? '本页帮助你快速认识 Aries AI 的关键界面：悬浮窗、日志、暂停/继续/停止等。' : 'Key UI elements: overlay, logs, pause/resume/stop.'}</p>
+              ${imgSlot('quick-5min', 'overlay', lang === 'CN' ? '悬浮窗示意图（待补充）' : 'Overlay (placeholder)')}
+              <h2>${lang === 'CN' ? '日志怎么看？' : 'How to read logs?'}</h2>
+              <ul>
+                <li>${lang === 'CN' ? '权限缺失：提示开启无障碍/悬浮窗/截图。' : 'Missing permissions: asks to enable accessibility/overlay/screenshot.'}</li>
+                <li>${lang === 'CN' ? '页面变化：控件找不到，建议回到正确页面后重试。' : 'UI changed: element not found; navigate back and retry.'}</li>
+              </ul>
+            </div>
+          `;
+        },
+        'model-key': () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '模型与 Key 配置' : 'Model & API Key'}</h1>
+              <p>${lang === 'CN' ? '在此页面补充：支持的模型服务、Key 填写位置、网络要求与常见报错。' : 'Placeholder: providers, where to set key, network requirements, common errors.'}</p>
+            </div>
+          `;
+        },
+        'automation-permissions': () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '自动化能力与权限' : 'Automation & Permissions'}</h1>
+              <p>${lang === 'CN' ? '说明三类关键权限：无障碍（必须）、悬浮窗（推荐）、截图（按需）。后续可补不同机型路径截图。' : 'Explain accessibility (required), overlay (recommended), screenshots (optional).'}
+              </p>
+              ${imgSlot('automation-permissions', 'accessibility', lang === 'CN' ? '无障碍开启路径（待补充）' : 'Accessibility path (placeholder)')}
+              ${imgSlot('automation-permissions', 'screenshot', lang === 'CN' ? '截图权限路径（待补充）' : 'Screenshot permission (placeholder)')}
+            </div>
+          `;
+        },
+        'automation-accessibility': () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '无障碍开启指南（占位）' : 'Accessibility Guide (placeholder)'}</h1>
+              <p>${lang === 'CN' ? '后续按手机厂商补齐：小米/华为/OPPO/VIVO/三星等。' : 'To be completed per OEM: Xiaomi/Huawei/OPPO/VIVO/Samsung...'}
+              </p>
+            </div>
+          `;
+        },
+        'dev-contribute': () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '开发 / 共创' : 'Dev / Co-Create'}</h1>
+              <p>${lang === 'CN' ? '此页面入口已从网站导航隐藏（后续接入共创体系时再开放）。' : 'This entry is hidden from nav for now.'}</p>
+            </div>
+          `;
+        },
+        'doc-building': () => docPage('构建指南（BUILDING）', 'Building Guide', 'BUILDING'),
+        'doc-workflow': () => docPage('工作流（GIT_WORKFLOW）', 'Git Workflow', 'GIT_WORKFLOW'),
+        'doc-standards': () => docPage('代码规范（CODING_STANDARDS）', 'Coding Standards', 'CODING_STANDARDS'),
+        'doc-feishu': () => docPage('飞书协作（FEISHU）', 'Feishu Collaboration', 'FEISHU_COLLABORATION'),
+        faq: () => {
+          return `
+            <div class="doc-prose">
+              <h1>${lang === 'CN' ? '常见问题 Q&A' : 'Q&A'}</h1>
+              <p>${lang === 'CN' ? '本页收录使用/构建/运行过程中的典型问题与解决方案。' : 'Common questions and answers.'}</p>
+            </div>
+          `;
+        },
+      };
+
+      function getRoute() {
+        const raw = (location.hash || '').trim();
+        const m = raw.match(/^#\/(.+)$/);
+        return m && m[1] ? m[1] : 'home';
+      }
+
+      function bindImgSlots() {
+        contentEl.querySelectorAll('[data-img-src]')
+          .forEach((el) => {
+            el.addEventListener('click', () => {
+              const src = el.getAttribute('data-img-src') || '';
+              const alt = el.getAttribute('data-img-alt') || '';
+              if (!src) return;
+              openLightbox(src, alt);
+            });
+          });
+      }
+
+      async function render() {
+        buildNav();
+        const route = getRoute();
+        const page = PAGES[route] || PAGES.home;
+        contentEl.innerHTML = page();
+        const docEls = Array.from(contentEl.querySelectorAll('[data-doc]'));
+        await Promise.all(docEls.map(async (el) => {
+          const docName = el.getAttribute('data-doc') || '';
+          if (!docName) return;
+          try {
+            el.textContent = '加载中...';
+            const txt = await loadDocText(docName);
+            if (window.marked && typeof window.marked.parse === 'function') {
+              el.innerHTML = window.marked.parse(txt);
+              postProcessMarkdown(el);
+            } else {
+              el.textContent = txt;
+            }
+          } catch (err) {
+            el.textContent = '文档加载失败：' + (err && err.message ? err.message : String(err));
+          }
+        }));
+        bindImgSlots();
+      }
+
+      window.addEventListener('hashchange', render);
+      render();
+    })();
+  </script>
+</body>
+
+</html>
