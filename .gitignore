@@ -1,6 +1,7 @@
 # Ignore all temp assets and tool copies
 /temp/
-/自动化升级计划.md
+#语音模型
+/app/src/main/assets
 *.iml
 .gradle
 /local.properties
@@ -22,9 +23,7 @@ local.properties
 
 build/
 /app/build/
-
 release/
-
 
 # Local environment / secrets
 .env
@@ -49,8 +48,6 @@ release.keystore
 *.aar
 *.aab
 
-app/src/main/assets/model/*
-!app/src/main/assets/model/README
 
 # Exclude sherpa model binaries (too large for GitHub)
 app/src/main/assets/sherpa-models/*

@@ -498,8 +498,20 @@ class UiAutomationAgent(
             val beforeTime = service.lastWindowEventTime()
             LaunchProxyActivity.launch(service, intent)
             onLog("[⚡快速启动] 后台启动 ${appMatch.appLabel}（无需连接模型，节省时间）")
+            // 等待更长时间确保应用加载完成
             service.awaitWindowEvent(beforeTime, timeoutMs = config.appLaunchWaitTimeoutMs)
             delay(config.appLaunchExtraDelayMs)
+            
+            // 清理截图缓存，确保获取最新的应用界面截图
+            screenshotManager?.clear()
+            
+            // 验证应用是否真的启动了
+            val newApp = service.currentAppPackage()
+            if (newApp != appMatch.packageName) {
+                onLog("[⚡快速启动] ${appMatch.appLabel} 启动验证失败（当前：$newApp），将在后续步骤中处理")
+            } else {
+                onLog("[⚡快速启动] ${appMatch.appLabel} 启动成功，继续后续操作...")
+            }
             return true
         } catch (e: Exception) {
             onLog("[⚡快速启动] 启动失败: ${e.message}")

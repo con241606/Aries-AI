@@ -72,9 +72,9 @@
                 android:id="@+id/cardAppInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginBottom="@dimen/spacing_md"
                 app:cardBackgroundColor="@android:color/white"
-                app:cardCornerRadius="32dp"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="1dp"
                 app:strokeColor="#E0F2FE">
@@ -84,7 +84,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
-                    android:padding="24dp">
+                    android:padding="@dimen/card_padding">
 
                     <!-- 应用图标 -->
                     <com.google.android.material.card.MaterialCardView
@@ -108,10 +108,10 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
+                        android:layout_marginTop="@dimen/spacing_sm"
                         android:text="Aries AI"
                         android:textColor="@color/blue_glass_primary"
-                        android:textSize="22sp"
+                        android:textSize="20sp"
                         android:textStyle="bold"
                         android:letterSpacing="0.03" />
 
@@ -120,7 +120,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="v1.0.0 首发版 Alpha"
+                        android:text="V1.2.0"
                         android:textColor="@color/blue_glass_icon"
                         android:textSize="13sp" />
 

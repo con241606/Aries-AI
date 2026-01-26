@@ -37,16 +37,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:paddingHorizontal="@dimen/page_padding"
+            android:paddingVertical="@dimen/spacing_md">
 
             <!-- 核心状态卡片 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
+                android:layout_marginBottom="@dimen/spacing_md"
                 app:cardBackgroundColor="@android:color/white"
-                app:cardCornerRadius="32dp"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="1dp"
                 app:strokeColor="#E0F2FE">
@@ -56,7 +57,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="20dp">
+                    android:padding="@dimen/card_padding_small">
 
                     <View
                         android:id="@+id/statusIndicator"
@@ -115,9 +116,9 @@
                 android:id="@+id/cardTask"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
+                android:layout_marginBottom="@dimen/spacing_md"
                 app:cardBackgroundColor="@android:color/white"
-                app:cardCornerRadius="32dp"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="1dp"
                 app:strokeColor="#E0F2FE">
@@ -126,7 +127,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="20dp">
+                    android:padding="@dimen/card_padding_small">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -141,7 +142,7 @@
                     <RelativeLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
+                        android:layout_marginTop="@dimen/spacing_sm"
                         android:background="@drawable/bg_rounded_input_light"
                         android:padding="4dp">
 
@@ -186,7 +187,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
+                        android:layout_marginTop="@dimen/spacing_sm"
                         android:background="@drawable/bg_recommend_gradient"
                         android:padding="1dp">
 
@@ -198,7 +199,7 @@
                             android:clickable="true"
                             android:focusable="true"
                             android:gravity="center"
-                            android:padding="12dp"
+                            android:padding="@dimen/spacing_sm"
                             android:text="点击尝试：'查看当前电池状态'"
                             android:textColor="@color/blue_glass_primary"
                             android:textSize="13sp"
@@ -207,12 +208,12 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 操作面板 (高度平齐，无阴影，淡蓝描边) -->
+            <!-- 操作面板 -->
             <LinearLayout
                 android:id="@+id/layoutControls"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="28dp"
+                android:layout_marginBottom="@dimen/spacing_md"
                 android:gravity="center"
                 android:orientation="horizontal">
 
@@ -220,13 +221,13 @@
                     android:id="@+id/btnPauseAgent"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="60dp"
+                    android:layout_height="52dp"
                     android:layout_weight="1"
                     android:text="暂停"
                     android:textColor="@color/blue_glass_primary"
-                    android:textSize="15sp"
-                    android:layout_marginEnd="12dp"
-                    app:cornerRadius="30dp"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="@dimen/spacing_sm"
+                    app:cornerRadius="24dp"
                     app:icon="@drawable/ic_pause_24"
                     app:iconGravity="textStart"
                     app:iconTint="@color/blue_glass_primary"
@@ -237,14 +238,14 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnStartAgent"
                     android:layout_width="0dp"
-                    android:layout_height="60dp"
+                    android:layout_height="52dp"
                     android:layout_weight="1.2"
                     android:text="立即开始"
                     android:textColor="@android:color/white"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold"
                     app:backgroundTint="@color/blue_glass_primary"
-                    app:cornerRadius="30dp"
+                    app:cornerRadius="24dp"
                     app:elevation="0dp"
                     app:rippleColor="#20FFFFFF" />
 
@@ -252,13 +253,13 @@
                     android:id="@+id/btnStopAgent"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="60dp"
+                    android:layout_height="52dp"
                     android:layout_weight="1"
                     android:text="停止"
                     android:textColor="#EF4444"
-                    android:textSize="15sp"
-                    android:layout_marginStart="12dp"
-                    app:cornerRadius="30dp"
+                    android:textSize="14sp"
+                    android:layout_marginStart="@dimen/spacing_sm"
+                    app:cornerRadius="24dp"
                     app:icon="@drawable/ic_stop_24"
                     app:iconGravity="textStart"
                     app:iconTint="#EF4444"
@@ -272,9 +273,9 @@
                 android:id="@+id/cardLog"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
+                android:layout_marginBottom="@dimen/spacing_md"
                 app:cardBackgroundColor="#0F172A"
-                app:cardCornerRadius="24dp"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="1.5dp"
                 app:strokeColor="#1E293B">
@@ -283,7 +284,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="20dp">
+                    android:padding="@dimen/card_padding_small">
 
                     <LinearLayout
                         android:layout_width="match_parent"

@@ -110,16 +110,6 @@ class UIAutomationProgressOverlay private constructor(private val context: Conte
                 btnCancel = view.findViewById(R.id.btnCancel)
                 progressBar = view.findViewById(R.id.progressBar)
 
-                view.setOnClickListener {
-                    val i = Intent(context, AutomationActivityNew::class.java)
-                    i.addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                    )
-                    context.startActivity(i)
-                }
-
                 // 设置初始值
                 updateProgress(0, initialStatus)
 

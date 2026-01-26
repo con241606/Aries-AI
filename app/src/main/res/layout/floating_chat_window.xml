@@ -129,17 +129,6 @@
                 android:maxLines="3" />
 
             <ImageButton
-                android:id="@+id/btnVoice"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/ripple_circle"
-                android:src="@drawable/ic_mic_24"
-                android:scaleType="centerInside"
-                android:contentDescription="语音输入"
-                android:padding="6dp" />
-
-            <ImageButton
                 android:id="@+id/btnAdd"
                 android:layout_width="32dp"
                 android:layout_height="32dp"

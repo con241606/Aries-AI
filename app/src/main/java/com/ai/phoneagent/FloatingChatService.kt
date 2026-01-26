@@ -670,40 +670,29 @@ class FloatingChatService : Service() {
 
         // 全屏按钮
         val btnFullscreen = view.findViewById<ImageButton>(R.id.btnFullscreen)
-        btnFullscreen.setOnClickListener {
+        btnFullscreen?.setOnClickListener {
             setFocusable(false)
             expandToFullScreen()
         }
 
         // 返回主页按钮
         val btnHome = view.findViewById<ImageButton>(R.id.btnHome)
-        btnHome.setOnClickListener {
+        btnHome?.setOnClickListener {
             setFocusable(false)
             expandToFullScreen()
         }
 
         // 关闭按钮
         val btnClose = view.findViewById<ImageButton>(R.id.btnClose)
-        btnClose.setOnClickListener {
+        btnClose?.setOnClickListener {
             closeWindow()
         }
 
         // 输入框 - 优化键盘呼出响应速度
         val inputMessage = view.findViewById<EditText>(R.id.inputMessage)
-
-        // 语音按钮
-        val btnVoice = view.findViewById<ImageButton>(R.id.btnVoice)
-        btnVoice.setOnClickListener {
-            // 悬浮窗里无法弹权限对话框；如果没权限提示用户回主界面授予
-            val granted =
-                ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                Toast.makeText(this, "请先在主界面授予录音权限", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            setFocusable(true)
-            if (isListening) stopVoiceInput() else startVoiceInput(inputMessage)
+        if (inputMessage == null) {
+            Log.e(TAG, "Floating window layout missing required view: inputMessage")
+            return
         }
 
         // 预先设置为可聚焦模式，避免延迟
@@ -737,7 +726,7 @@ class FloatingChatService : Service() {
 
         // 发送按钮
         val btnSend = view.findViewById<ImageButton>(R.id.btnSend)
-        btnSend.setOnClickListener {
+        btnSend?.setOnClickListener {
             val text = inputMessage.text.toString().trim()
             if (text.isNotEmpty()) {
                 sendUserMessage(text, inputMessage)
